@@ -25,5 +25,6 @@ dist-ssr
 *.sln
 *.sw?
 
-# Vercel
-.vercel
+# Python voice server
+server/.venv
+

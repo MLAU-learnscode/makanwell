@@ -2,14 +2,14 @@ import { useEffect, useRef, useState } from 'react'
 import { motion } from 'motion/react'
 import {
   Search, MessageCircle, ChevronRight, ChevronLeft,
-  Send, Leaf, Activity, ArrowRight, X, Sparkles, CheckCircle2, Stethoscope, Mic,
+  Leaf, Activity, ArrowRight, X, CheckCircle2, Stethoscope,
 } from 'lucide-react'
 import questionnaire from './data/questionnaire.json'
 import {
   calculateRisk, computeBMI, sortDishesForConditions, getWorstRating,
   fastTrack, CONDITION_LABEL, TIER_DISPLAY, CONDITIONS,
 } from './lib/scoring.js'
-import { isVoiceSupported, listenOnce, speak } from './lib/voice.js'
+import ChatWindow from './components/chat/ChatWindow.jsx'
 
 const FOOD_CATEGORIES = ['All', 'Rice', 'Noodles', 'Soups', 'Drinks', 'Desserts']
 
@@ -172,7 +172,7 @@ function SideNav({ screen, setScreen }) {
 }
 
 // ── Landing ─────────────────────────────────────────────────────────────
-function LandingScreen({ onCheckRisk, onFastTrack }) {
+function LandingScreen({ onCheckRisk, onFastTrack, onChatWithAI }) {
   return (
     <div className="min-h-screen flex flex-col bg-gradient-to-b from-teal-50 via-background to-background">
       <div className="w-full max-w-6xl mx-auto flex-1 flex flex-col">
@@ -246,6 +246,10 @@ function LandingScreen({ onCheckRisk, onFastTrack }) {
               <button onClick={onFastTrack}
                 className="w-full bg-white text-primary border-2 border-primary/30 rounded-2xl py-4 font-bold text-base flex items-center justify-center gap-2 hover:bg-teal-50 active:scale-[0.98] transition-all">
                 <Stethoscope size={18} /> I Already Have a Diagnosis
+              </button>
+              <button onClick={onChatWithAI}
+                className="w-full bg-white text-foreground border border-border rounded-2xl py-4 font-bold text-base flex items-center justify-center gap-2 hover:bg-muted/50 active:scale-[0.98] transition-all">
+                <MessageCircle size={18} className="text-primary" /> Chat with AI
               </button>
               <p className="text-center sm:text-left text-xs text-muted-foreground mt-1">16-question assessment · ~5 min · No sign-up needed</p>
             </div>
@@ -758,147 +762,6 @@ function DashboardScreen({ profile, dishes }) {
   )
 }
 
-// ── Chat ────────────────────────────────────────────────────────────────
-function ChatScreen({ profile }) {
-  const [msgs, setMsgs] = useState([
-    { role: 'ai', text: "Hi there! 👋 I'm your AI nutrition assistant. Ask me anything about hawker food and your health — calorie counts, what's safe for diabetes, or which dishes to avoid with high blood pressure." },
-  ])
-  const [input, setInput] = useState('')
-  const [typing, setTyping] = useState(false)
-  const bottomRef = useRef(null)
-  const primary = profile?.primaryConditions ?? []
-  const tier = profile?.riskScore?.tier?.[primary[0]] ?? 'Moderate'
-
-  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [msgs, typing])
-
-  async function send(text) {
-    const message = (text ?? input).trim()
-    if (!message || typing) return
-    const userMsgs = [...msgs, { role: 'user', text: message }]
-    setMsgs(userMsgs)
-    setInput('')
-    setTyping(true)
-    try {
-      const apiMessages = userMsgs.filter((m) => m.role === 'user' || m.role === 'ai').map((m) => ({
-        role: m.role === 'ai' ? 'assistant' : 'user',
-        content: m.text,
-      }))
-      const res = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          profile: { tier, conditions: primary },
-          messages: apiMessages,
-        }),
-      })
-      if (!res.ok) throw new Error(`API error: ${res.status}`)
-      const data = await res.json()
-      const answer = data.reply || data.error || 'No response.'
-      setMsgs((prev) => [...prev, { role: 'ai', text: answer }])
-      if (data.reply) speak(data.reply)
-    } catch (err) {
-      const errMsg = err.message.includes('fetch')
-        ? '⚠️ API not available locally. Deploy to Vercel or use `vercel dev` to test the chat feature.'
-        : `Error: ${err.message}`
-      setMsgs((prev) => [...prev, { role: 'ai', text: errMsg }])
-    } finally {
-      setTyping(false)
-    }
-  }
-
-  async function handleMic() {
-    try {
-      const transcript = await listenOnce()
-      setInput(transcript)
-      send(transcript)
-    } catch (e) {
-      setMsgs((prev) => [...prev, { role: 'ai', text: e.message }])
-    }
-  }
-
-  const showSuggestions = msgs.length === 1
-
-  return (
-    <div className="h-[100dvh] md:h-screen flex flex-col bg-background pb-[4.5rem] md:pb-0">
-      <div className="w-full max-w-4xl mx-auto flex flex-col flex-1 min-h-0">
-        <div className="px-5 sm:px-8 pt-10 sm:pt-12 md:pt-8 pb-4 bg-white border-b border-border flex-shrink-0">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-teal-500 to-emerald-500 flex items-center justify-center shadow-sm">
-              <Sparkles size={18} className="text-white" />
-            </div>
-            <div>
-              <div className="font-extrabold text-sm sm:text-base text-foreground">AI Nutrition Assistant</div>
-              <div className="flex items-center gap-1.5 text-xs text-emerald-600 font-semibold">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" /> Online
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div className="flex-1 overflow-y-auto px-5 sm:px-8 py-5 space-y-4">
-          {msgs.map((msg, i) => (
-            <div key={i} className={`flex gap-2 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-              {msg.role === 'ai' && (
-                <div className="w-7 h-7 rounded-xl bg-gradient-to-br from-teal-500 to-emerald-500 flex items-center justify-center flex-shrink-0 mt-1 shadow-sm">
-                  <Sparkles size={13} className="text-white" />
-                </div>
-              )}
-              <div className={`max-w-[85%] sm:max-w-[75%] md:max-w-md rounded-3xl px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap ${
-                msg.role === 'user' ? 'bg-primary text-white rounded-br-lg shadow-sm' : 'bg-white text-foreground border border-border/60 shadow-sm rounded-bl-lg'
-              }`}>{msg.text}</div>
-            </div>
-          ))}
-          {typing && (
-            <div className="flex gap-2 items-center">
-              <div className="w-7 h-7 rounded-xl bg-gradient-to-br from-teal-500 to-emerald-500 flex items-center justify-center shadow-sm">
-                <Sparkles size={13} className="text-white" />
-              </div>
-              <div className="bg-white border border-border/60 shadow-sm rounded-3xl rounded-bl-lg px-4 py-3">
-                <div className="flex gap-1.5 items-center h-4">
-                  {[0, 1, 2].map((idx) => (
-                    <span key={idx} className="w-1.5 h-1.5 rounded-full bg-muted-foreground/50 animate-bounce" style={{ animationDelay: `${idx * 0.15}s` }} />
-                  ))}
-                </div>
-              </div>
-            </div>
-          )}
-          {showSuggestions && (
-            <div>
-              <p className="text-xs text-muted-foreground mb-3 text-center font-medium">Suggested questions</p>
-              <div className="space-y-2 sm:grid sm:grid-cols-2 sm:gap-2 sm:space-y-0">
-                {CHAT_SUGGESTIONS.map((s) => (
-                  <button key={s} onClick={() => send(s)}
-                    className="w-full text-left bg-white border border-border/60 rounded-2xl px-4 py-3 text-sm font-medium hover:border-primary hover:bg-teal-50/40 transition-all shadow-sm">
-                    {s}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-          <div ref={bottomRef} />
-        </div>
-
-        <div className="px-5 sm:px-8 py-4 bg-white border-t border-border flex-shrink-0 pb-[calc(1rem+env(safe-area-inset-bottom))] md:pb-4">
-          <div className="flex items-center gap-3 bg-muted/50 rounded-2xl px-4 py-3">
-            <input value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && send()}
-              placeholder="Ask about any hawker dish..." className="flex-1 outline-none text-sm bg-transparent" />
-            {isVoiceSupported() && (
-              <button onClick={handleMic} disabled={typing} className="w-8 h-8 rounded-xl flex items-center justify-center text-muted-foreground hover:bg-white transition-all" title="Speak">
-                <Mic size={16} />
-              </button>
-            )}
-            <button onClick={() => send()} disabled={!input.trim() || typing}
-              className={`w-8 h-8 rounded-xl flex items-center justify-center transition-all flex-shrink-0 ${input.trim() && !typing ? 'bg-primary text-white shadow-sm hover:bg-teal-700' : 'bg-muted text-muted-foreground'}`}>
-              <Send size={14} />
-            </button>
-          </div>
-          <p className="text-center text-[10px] text-muted-foreground mt-2">AI responses are for general reference only. Consult a healthcare professional.</p>
-        </div>
-      </div>
-    </div>
-  )
-}
-
 // ── Root ────────────────────────────────────────────────────────────────
 export default function App() {
   const [screen, setScreen] = useState('landing')
@@ -933,18 +796,44 @@ export default function App() {
     setScreen('dashboard')
   }
 
+  function handleAiIntakeComplete(completedProfile) {
+    setProfile(completedProfile)
+    setScreen('dashboard')
+  }
+
   return (
     <div className="min-h-screen bg-background">
       {showNav && <SideNav screen={screen} setScreen={setScreen} />}
       <main className={`min-h-screen ${showNav ? 'md:ml-56' : ''}`}>
         {screen === 'landing' && (
-          <LandingScreen onCheckRisk={() => setScreen('assessment')} onFastTrack={() => setScreen('fast-track')} />
+          <LandingScreen
+            onCheckRisk={() => setScreen('assessment')}
+            onFastTrack={() => setScreen('fast-track')}
+            onChatWithAI={() => setScreen('ai-intake')}
+          />
+        )}
+        {screen === 'ai-intake' && (
+          <ChatWindow
+            mode="intake"
+            title="AI Health Intake"
+            subtitle="Tell me about yourself — type or speak"
+            onComplete={handleAiIntakeComplete}
+            onBack={() => setScreen('landing')}
+          />
         )}
         {screen === 'fast-track' && <FastTrackScreen onComplete={handleFastTrackComplete} />}
         {screen === 'assessment' && <AssessmentScreen onComplete={handleQuestionnaireComplete} />}
         {screen === 'profile' && profile && <ProfileScreen profile={profile} onExplore={() => setScreen('dashboard')} />}
         {screen === 'dashboard' && <DashboardScreen profile={profile} dishes={dishes} />}
-        {screen === 'chat' && <ChatScreen profile={profile} />}
+        {screen === 'chat' && (
+          <ChatWindow
+            mode="advisor"
+            profile={profile}
+            suggestions={CHAT_SUGGESTIONS}
+            onViewFood={() => setScreen('dashboard')}
+            showNavPadding
+          />
+        )}
       </main>
       {showNav && <BottomNav screen={screen} setScreen={setScreen} />}
     </div>
