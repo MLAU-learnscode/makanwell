@@ -120,7 +120,7 @@ export function useWebsocket({
       if (unmounted.current || attempt >= MAX_RETRIES) {
         if (!unmounted.current && !everConnected.current) {
           setConnectionError(
-            'Could not connect to the voice server. Make sure it is running (npm run dev starts it on port 8000).',
+            'Could not connect to the voice server. Please try again in a moment.',
           )
         }
         return
