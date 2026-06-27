@@ -582,9 +582,6 @@ function DashboardScreen({ profile, dishes }) {
   const [locError, setLocError] = useState(null)
   const [placesResults, setPlacesResults] = useState([])
   const [placesLoading, setPlacesLoading] = useState(false)
-  const [hawkerSearch, setHawkerSearch] = useState('')
-  const [hawkerResults, setHawkerResults] = useState(null)
-  const [hawkerLoading, setHawkerLoading] = useState(false)
   const primary = profile?.primaryConditions ?? []
 
   useEffect(() => {
@@ -592,11 +589,9 @@ function DashboardScreen({ profile, dishes }) {
   }, [])
 
   useEffect(() => {
-    if (!expanded || !userLoc || !eateries.length) return
+    if (!expanded || !userLoc) return
     const food = dishes.find(d => d.id === expanded)
     if (!food) return
-    const localMatches = getNearbyEateries(food)
-    if (localMatches.some(e => e.score > 0)) { setPlacesResults([]); return }
     setPlacesLoading(true)
     setPlacesResults([])
     fetch('/api/places', {
@@ -605,8 +600,15 @@ function DashboardScreen({ profile, dishes }) {
       body: JSON.stringify({ query: food.name, lat: userLoc.lat, lng: userLoc.lon }),
     })
       .then(r => r.json())
-      .then(d => setPlacesResults(d.places ?? []))
-      .catch(() => setPlacesResults([]))
+      .then(d => {
+        const places = d.places ?? []
+        if (places.length > 0) {
+          setPlacesResults(places)
+        } else {
+          setPlacesResults(getNearbyEateries(food))
+        }
+      })
+      .catch(() => setPlacesResults(getNearbyEateries(food)))
       .finally(() => setPlacesLoading(false))
   }, [expanded, userLoc])
 
@@ -626,26 +628,6 @@ function DashboardScreen({ profile, dishes }) {
     )
   }
 
-  async function searchHawkers(foodQuery) {
-    if (!foodQuery.trim()) return
-    if (!userLoc) { requestLocation(); return }
-    setHawkerLoading(true)
-    setHawkerResults(null)
-    try {
-      const res = await fetch('/api/hawker-search', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ food: foodQuery.trim(), lat: userLoc.lat, lng: userLoc.lon }),
-      })
-      const data = await res.json()
-      setHawkerResults(data.places ?? [])
-    } catch {
-      setHawkerResults([])
-    } finally {
-      setHawkerLoading(false)
-    }
-  }
-
   function getNearbyEateries(food) {
     if (!userLoc || !eateries.length) return []
     return eateries
@@ -660,8 +642,8 @@ function DashboardScreen({ profile, dishes }) {
 
   const filtered = sortDishesForConditions(
     dishes.filter((f) => {
-      const matchQ = f.name.toLowerCase().includes(query.toLowerCase()) || f.local_name?.includes(query)
-      const matchC = category === 'All' || f.category === category
+      const matchQ = f.name.toLowerCase().includes(query.toLowerCase()) || f.local_name?.toLowerCase().includes(query.toLowerCase())
+      const matchC = query.trim() !== '' || category === 'All' || f.category === category
       return matchQ && matchC
     }),
     primary,
@@ -681,7 +663,7 @@ function DashboardScreen({ profile, dishes }) {
           <div className="hidden md:block flex-1 max-w-md">
             <div className="flex items-center gap-3 bg-white border border-border rounded-2xl px-4 py-3 shadow-sm">
               <Search size={16} className="text-muted-foreground flex-shrink-0" />
-              <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search dishes..."
+              <input value={query} onChange={(e) => { setQuery(e.target.value); if (e.target.value) setCategory('All') }} placeholder="Search dishes..."
                 className="flex-1 outline-none text-sm text-foreground placeholder:text-muted-foreground bg-transparent" />
               {query && <button onClick={() => setQuery('')}><X size={15} className="text-muted-foreground" /></button>}
             </div>
@@ -709,7 +691,7 @@ function DashboardScreen({ profile, dishes }) {
         <div className="md:hidden mb-4">
           <div className="flex items-center gap-3 bg-white border border-border rounded-2xl px-4 py-3 shadow-sm">
             <Search size={16} className="text-muted-foreground flex-shrink-0" />
-            <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search dishes..."
+            <input value={query} onChange={(e) => { setQuery(e.target.value); if (e.target.value) setCategory('All') }} placeholder="Search dishes..."
               className="flex-1 outline-none text-sm bg-transparent" />
             {query && <button onClick={() => setQuery('')}><X size={15} className="text-muted-foreground" /></button>}
           </div>
@@ -722,47 +704,6 @@ function DashboardScreen({ profile, dishes }) {
               {cat}
             </button>
           ))}
-        </div>
-
-        {/* Hawker food search panel */}
-        <div className="mb-5 bg-white rounded-3xl border border-border/50 shadow-sm p-4">
-          <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">🔍 Find hawker stalls near you</div>
-          <div className="flex gap-2">
-            <input
-              value={hawkerSearch}
-              onChange={(e) => setHawkerSearch(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && searchHawkers(hawkerSearch)}
-              placeholder="e.g. chicken rice, char kway teow..."
-              className="flex-1 bg-muted/40 border border-border rounded-2xl px-4 py-2.5 text-sm outline-none focus:border-primary"
-            />
-            <button
-              onClick={() => searchHawkers(hawkerSearch)}
-              disabled={!hawkerSearch.trim() || hawkerLoading}
-              className={`px-4 py-2.5 rounded-2xl text-sm font-semibold transition-all flex-shrink-0 ${hawkerSearch.trim() && !hawkerLoading ? 'bg-primary text-white hover:bg-teal-700' : 'bg-muted text-muted-foreground cursor-not-allowed'}`}
-            >
-              {hawkerLoading ? '...' : 'Search'}
-            </button>
-          </div>
-          {!userLoc && (
-            <p className="text-xs text-muted-foreground mt-2">📍 Location required — click Search to enable</p>
-          )}
-          {hawkerResults !== null && (
-            <div className="mt-3 space-y-2">
-              {hawkerResults.length === 0 ? (
-                <p className="text-xs text-muted-foreground">No nearby stalls found. Try a different food name.</p>
-              ) : hawkerResults.map((p, i) => (
-                <div key={i} className="bg-emerald-50 border border-emerald-200 rounded-xl p-3">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="flex-1">
-                      <div className="font-semibold text-xs text-emerald-900">{p.name}</div>
-                      <div className="text-[11px] text-emerald-700 mt-0.5">{p.address}</div>
-                    </div>
-                    {p.rating && <div className="flex-shrink-0 text-xs font-bold text-emerald-800">⭐ {p.rating}</div>}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
         </div>
 
         <div className="space-y-3 md:grid md:grid-cols-2 xl:grid-cols-3 md:gap-4 md:space-y-0 pb-4">
@@ -925,8 +866,8 @@ function ChatScreen({ profile }) {
       setMsgs((prev) => [...prev, { role: 'ai', text: answer }])
       if (data.reply) speak(data.reply)
     } catch (err) {
-      const errMsg = err.message.includes('fetch') || err.message.includes('Failed to fetch')
-        ? '⚠️ AI server is not running. Open a terminal and run: npm run dev (this starts both the API server and UI together).'
+      const errMsg = err.message.includes('fetch')
+        ? '⚠️ API not available locally. Deploy to Vercel or use `vercel dev` to test the chat feature.'
         : `Error: ${err.message}`
       setMsgs((prev) => [...prev, { role: 'ai', text: errMsg }])
     } finally {
