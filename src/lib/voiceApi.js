@@ -1,8 +1,9 @@
 import questionnaire from '../data/questionnaire.json'
 
 const INTRO =
-  'Hello, this is HawkerHealth. I will ask you sixteen health questions. ' +
-  'After each question, speak your answer, then tap the green button. Let us begin.'
+  'Hello, this is HawkerHealth. Thank you for calling. ' +
+  'I will ask you sixteen short health questions — just speak naturally, like a normal phone call. ' +
+  'You can interrupt me anytime. Let us begin.'
 
 const OUTRO =
   'Thank you. I have everything I need. Your health profile is ready. Goodbye!'
@@ -48,8 +49,8 @@ export function buildRetryPrompt(error) {
   return `Sorry, I did not catch that. ${friendly || 'Please try again.'}`
 }
 
-export function buildConfirmPrompt(label) {
-  return `I heard: ${label}. Is that correct? Say yes to continue, or no to try again.`
+export function buildAckPrompt(label) {
+  return `Got it, ${label}.`
 }
 
 export { INTRO, OUTRO }
@@ -200,7 +201,19 @@ export function speakBrowser(text) {
   })
 }
 
-async function playMp3ViaWebAudio(base64) {
+let activePlayback = null
+
+export function stopActiveSpeech() {
+  if (activePlayback) {
+    activePlayback.stop()
+    activePlayback = null
+  }
+  if (typeof window !== 'undefined' && window.speechSynthesis) {
+    window.speechSynthesis.cancel()
+  }
+}
+
+async function playMp3ViaWebAudioCancellable(base64, controller) {
   unlockAudioOnUserGesture()
   const Ctx = window.AudioContext || window.webkitAudioContext
   if (!Ctx) throw new Error('Web Audio not supported')
@@ -214,13 +227,32 @@ async function playMp3ViaWebAudio(base64) {
     const source = sharedAudioContext.createBufferSource()
     source.buffer = audioBuffer
     source.connect(sharedAudioContext.destination)
-    source.onended = () => resolve()
+    activePlayback = {
+      stop() {
+        try {
+          source.stop()
+        } catch {
+          /* already stopped */
+        }
+      },
+    }
+    source.onended = () => {
+      activePlayback = null
+      resolve()
+    }
+    source.onerror = () => {
+      activePlayback = null
+      reject(new Error('Could not play audio'))
+    }
+    if (controller.stopped) {
+      resolve()
+      return
+    }
     source.start(0)
-    source.onerror = () => reject(new Error('Could not play audio'))
   })
 }
 
-async function playMp3ViaBlobUrl(base64) {
+async function playMp3ViaBlobUrlCancellable(base64, controller) {
   unlockAudioOnUserGesture()
   const bytes = base64ToBytes(base64)
   const blob = new Blob([bytes], { type: 'audio/mpeg' })
@@ -229,35 +261,114 @@ async function playMp3ViaBlobUrl(base64) {
     const audio = new Audio(url)
     audio.volume = 1
     audio.setAttribute('playsinline', 'true')
+    activePlayback = {
+      stop() {
+        audio.pause()
+        audio.currentTime = 0
+      },
+    }
     audio.onended = () => {
       URL.revokeObjectURL(url)
+      activePlayback = null
       resolve()
     }
     audio.onerror = () => {
       URL.revokeObjectURL(url)
+      activePlayback = null
       reject(new Error('Could not play audio'))
+    }
+    if (controller.stopped) {
+      URL.revokeObjectURL(url)
+      resolve()
+      return
     }
     audio.play().catch(reject)
   })
 }
 
-export async function playBase64Mp3(base64) {
+async function playBase64Mp3Cancellable(base64, controller) {
   try {
-    await playMp3ViaWebAudio(base64)
+    await playMp3ViaWebAudioCancellable(base64, controller)
   } catch {
-    await playMp3ViaBlobUrl(base64)
+    if (!controller.stopped) await playMp3ViaBlobUrlCancellable(base64, controller)
   }
 }
 
-/** OpenAI TTS (primary). Falls back to browser speech only if API or playback fails. */
-export async function speakAloud(text) {
-  unlockAudioOnUserGesture()
-  try {
-    const { audio } = await fetchTTS(text)
-    await playBase64Mp3(audio)
-  } catch (err) {
-    console.warn('[voice] OpenAI TTS failed, using browser fallback:', err.message)
-    await speakBrowser(text)
+function speakBrowserCancellable(text, controller) {
+  return new Promise((resolve) => {
+    if (typeof window === 'undefined' || !window.speechSynthesis) {
+      resolve()
+      return
+    }
+
+    const maxMs = Math.min(8000, Math.max(2500, text.length * 45))
+
+    void waitForVoices().then((voice) => {
+      if (controller.stopped) {
+        resolve()
+        return
+      }
+      window.speechSynthesis.cancel()
+      const utterance = new SpeechSynthesisUtterance(text)
+      utterance.lang = 'en-US'
+      utterance.rate = 0.92
+      if (voice) utterance.voice = voice
+
+      activePlayback = {
+        stop() {
+          window.speechSynthesis.cancel()
+        },
+      }
+
+      const timer = setTimeout(() => {
+        window.speechSynthesis.cancel()
+        activePlayback = null
+        resolve()
+      }, maxMs)
+
+      utterance.onend = () => {
+        clearTimeout(timer)
+        activePlayback = null
+        resolve()
+      }
+      utterance.onerror = () => {
+        clearTimeout(timer)
+        activePlayback = null
+        resolve()
+      }
+
+      window.speechSynthesis.speak(utterance)
+    })
+  })
+}
+
+/** Returns { stop(), done } — call stop() for barge-in. */
+export function createCancellableSpeech(text) {
+  const controller = { stopped: false, stop() { this.stopped = true } }
+
+  const done = (async () => {
+    unlockAudioOnUserGesture()
+    try {
+      const { audio } = await fetchTTS(text)
+      if (controller.stopped) return
+      await playBase64Mp3Cancellable(audio, controller)
+    } catch (err) {
+      if (controller.stopped) return
+      console.warn('[voice] OpenAI TTS failed, using browser fallback:', err.message)
+      await speakBrowserCancellable(text, controller)
+    } finally {
+      if (activePlayback && controller.stopped) {
+        stopActiveSpeech()
+      }
+    }
+  })()
+
+  return {
+    stop: () => {
+      controller.stop()
+      stopActiveSpeech()
+    },
+    done,
   }
 }
 

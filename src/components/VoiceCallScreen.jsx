@@ -1,50 +1,65 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Leaf, PhoneOff, Mic, Phone, Volume2 } from 'lucide-react'
+import { Leaf, PhoneOff, Phone } from 'lucide-react'
 import {
   VOICE_QUESTIONS,
   INTRO,
   OUTRO,
   buildSpokenQuestion,
   buildRetryPrompt,
-  buildConfirmPrompt,
-  transcribeAudio,
+  buildAckPrompt,
   parseVoiceAnswer,
-  speakAloud,
   applyParsedAnswer,
   labelForAnswer,
-  isYes,
-  isNo,
-  AudioRecorder,
   formatCallDuration,
   getVoiceCallBlocker,
-  requestMicPermission,
   unlockAudioOnUserGesture,
 } from '../lib/voiceApi.js'
+import {
+  ConversationCallSession,
+  CONVERSATION_STATE,
+  wantsToEndCall,
+} from '../lib/conversationCall.js'
+
+const UI_PHASE = {
+  incoming: 'incoming',
+  blocked: 'blocked',
+  onCall: 'on_call',
+  ended: 'ended',
+  error: 'error',
+}
+
+function stateToStatus(state) {
+  switch (state) {
+    case CONVERSATION_STATE.CONNECTING:
+      return 'Connecting…'
+    case CONVERSATION_STATE.ASSISTANT_SPEAKING:
+      return 'Assistant speaking — interrupt anytime'
+    case CONVERSATION_STATE.LISTENING:
+      return 'Listening…'
+    case CONVERSATION_STATE.PROCESSING:
+      return 'Processing…'
+    default:
+      return 'On call'
+  }
+}
 
 export default function VoiceCallScreen({ onComplete, onEnd }) {
   const initialBlocker = getVoiceCallBlocker()
-  const [phase, setPhase] = useState(initialBlocker ? 'blocked' : 'incoming')
+  const [uiPhase, setUiPhase] = useState(initialBlocker ? UI_PHASE.blocked : UI_PHASE.incoming)
+  const [convState, setConvState] = useState(CONVERSATION_STATE.IDLE)
   const [stepIndex, setStepIndex] = useState(0)
-  const [answers, setAnswers] = useState({})
   const [statusLine, setStatusLine] = useState(initialBlocker ? 'Unavailable' : 'Incoming call…')
   const [caption, setCaption] = useState('')
   const [errorMsg, setErrorMsg] = useState(initialBlocker || '')
   const [duration, setDuration] = useState(0)
   const [timerOn, setTimerOn] = useState(false)
-  const [needsTapToSpeak, setNeedsTapToSpeak] = useState(false)
-  const [pendingSpeech, setPendingSpeech] = useState('')
 
-  const recorderRef = useRef(new AudioRecorder())
+  const sessionRef = useRef(null)
   const userEndedRef = useRef(false)
   const answersRef = useRef({})
   const stepRef = useRef(0)
-  const pendingRef = useRef(null)
   const startedRef = useRef(false)
-  const pendingSpeechRef = useRef('')
-
-  useEffect(() => {
-    answersRef.current = answers
-  }, [answers])
+  const loopRef = useRef(null)
 
   useEffect(() => {
     stepRef.current = stepIndex
@@ -58,166 +73,109 @@ export default function VoiceCallScreen({ onComplete, onEnd }) {
 
   const ended = useCallback(() => userEndedRef.current, [])
 
-  const speak = useCallback(async (text) => {
-    if (ended()) return
-    setPhase('speaking')
-    setStatusLine('Speaking…')
-    setCaption(text)
-    setNeedsTapToSpeak(false)
-    pendingSpeechRef.current = text
-    try {
-      await speakAloud(text)
-    } catch (err) {
+  const runConversationLoop = useCallback(async () => {
+    const session = sessionRef.current
+    if (!session || ended()) return
+
+    let index = stepRef.current
+    let currentAnswers = { ...answersRef.current }
+
+    while (index < VOICE_QUESTIONS.length && !ended()) {
+      const q = VOICE_QUESTIONS[index]
+      setStepIndex(index)
+
+      const spoken = buildSpokenQuestion(q, currentAnswers)
+      let transcript = await session.speakThenListen(spoken)
       if (ended()) return
-      setNeedsTapToSpeak(true)
-      setPendingSpeech(text)
-      setStatusLine('Tap speaker to hear, then speak')
+
+      while (!ended()) {
+        if (!transcript) {
+          transcript = await session.speakThenListen(
+            buildRetryPrompt('I did not hear you. Please say that again.'),
+          )
+          if (ended()) return
+          continue
+        }
+
+        if (wantsToEndCall(transcript)) {
+          userEndedRef.current = true
+          session.destroy()
+          onEnd()
+          return
+        }
+
+        const parsed = await parseVoiceAnswer(q, transcript, currentAnswers)
+        if (!parsed.success) {
+          transcript = await session.speakThenListen(buildRetryPrompt(parsed.error))
+          if (ended()) return
+          continue
+        }
+
+        const label = labelForAnswer(q, parsed)
+        currentAnswers = applyParsedAnswer(q, parsed, currentAnswers)
+        answersRef.current = currentAnswers
+
+        await session.speak(buildAckPrompt(label))
+        if (ended()) return
+
+        index += 1
+        stepRef.current = index
+        break
+      }
     }
-  }, [ended])
 
-  const listen = useCallback(async () => {
     if (ended()) return
-    setPhase('listening')
-    setStatusLine('Listening — tap when done')
-    setErrorMsg('')
-    try {
-      await recorderRef.current.start()
-    } catch (err) {
-      setPhase('error')
-      setErrorMsg(err.message || 'Could not access microphone')
-      setStatusLine('Microphone error')
-    }
-  }, [ended])
 
-  const retryListen = useCallback(async (message) => {
-    if (ended()) return
-    await speak(buildRetryPrompt(message))
-    if (ended()) return
-    await listen()
-  }, [speak, listen, ended])
-
-  const stopAndTranscribe = useCallback(async () => {
-    setPhase('processing')
-    setStatusLine('Processing…')
-    const { blob, durationMs } = await recorderRef.current.stop()
-    if (!blob || durationMs < 400) {
-      return { transcript: null, error: 'No speech detected. Please speak louder and try again.' }
-    }
-    const transcript = await transcribeAudio(blob)
-    if (!transcript) {
-      return { transcript: null, error: 'I did not hear anything. Please try again.' }
-    }
-    return { transcript, error: null }
-  }, [])
-
-  const runQuestion = useCallback(async (index, currentAnswers) => {
-    if (ended()) return
-    const q = VOICE_QUESTIONS[index]
-    if (!q) return
-
-    setStepIndex(index)
-    const spoken = buildSpokenQuestion(q, currentAnswers)
-    await speak(spoken)
-    if (ended()) return
-    await listen()
-  }, [speak, listen, ended])
-
-  const finishCall = useCallback(async (finalAnswers) => {
-    if (ended()) return
     setStatusLine('Finishing call…')
-    await speak(OUTRO)
-    setPhase('ended')
+    await session.speak(OUTRO)
+    setUiPhase(UI_PHASE.ended)
     setStatusLine('Call ended')
-    onComplete(finalAnswers)
-  }, [speak, onComplete, ended])
-
-  const advance = useCallback(async (index, currentAnswers) => {
-    if (index >= VOICE_QUESTIONS.length) {
-      await finishCall(currentAnswers)
-      return
-    }
-    await runQuestion(index, currentAnswers)
-  }, [runQuestion, finishCall])
-
-  const handleAnswer = useCallback(async (index, currentAnswers, transcript) => {
-    const q = VOICE_QUESTIONS[index]
-    const pending = pendingRef.current
-
-    if (pending) {
-      if (isYes(transcript)) {
-        const merged = applyParsedAnswer(q, pending.parsed, currentAnswers)
-        setAnswers(merged)
-        pendingRef.current = null
-        answersRef.current = merged
-        await advance(index + 1, merged)
-        return
-      }
-      if (isNo(transcript)) {
-        pendingRef.current = null
-        await runQuestion(index, currentAnswers)
-        return
-      }
-      await speak('Please say yes or no.')
-      await listen()
-      return
-    }
-
-    const parsed = await parseVoiceAnswer(q, transcript, currentAnswers)
-    if (!parsed.success) {
-      await speak(buildRetryPrompt(parsed.error))
-      await listen()
-      return
-    }
-
-    const label = labelForAnswer(q, parsed)
-    pendingRef.current = { parsed, label }
-    await speak(buildConfirmPrompt(label))
-    await listen()
-  }, [speak, listen, advance, runQuestion])
-
-  const processRecording = useCallback(async () => {
-    try {
-      const { transcript, error } = await stopAndTranscribe()
-      if (error || !transcript) {
-        await retryListen(error || 'Please try again.')
-        return
-      }
-      await handleAnswer(stepRef.current, answersRef.current, transcript)
-    } catch (err) {
-      await retryListen(err.message || 'Something went wrong. Please try again.')
-    }
-  }, [stopAndTranscribe, retryListen, handleAnswer])
+    onComplete(currentAnswers)
+  }, [ended, onComplete, onEnd])
 
   const startCall = useCallback(async () => {
     if (startedRef.current || ended()) return
     startedRef.current = true
 
+    const session = new ConversationCallSession({
+      onStateChange: (state) => {
+        setConvState(state)
+        setStatusLine(stateToStatus(state))
+      },
+      onCaption: setCaption,
+    })
+    sessionRef.current = session
+
     try {
-      setPhase('connecting')
-      setStatusLine('Starting call…')
+      setUiPhase(UI_PHASE.onCall)
+      setConvState(CONVERSATION_STATE.CONNECTING)
+      setStatusLine('Connecting…')
       setTimerOn(true)
 
-      // Speak FIRST — do not wait for mic permission (user hears AI immediately).
-      await speak(INTRO)
+      await session.init()
       if (ended()) return
 
-      setStatusLine('Allow microphone when asked…')
-      await requestMicPermission()
+      await session.speak(INTRO)
       if (ended()) return
 
-      await advance(0, {})
+      loopRef.current = runConversationLoop()
+      await loopRef.current
     } catch (err) {
       if (ended()) return
-      setPhase('error')
+      setUiPhase(UI_PHASE.error)
+      setConvState(CONVERSATION_STATE.ERROR)
       setErrorMsg(err.message || 'Could not start call')
       setStatusLine('Error')
       startedRef.current = false
     }
-  }, [speak, advance, ended])
+  }, [runConversationLoop, ended])
 
-  useEffect(() => () => {
-    recorderRef.current.cleanup()
-  }, [])
+  useEffect(
+    () => () => {
+      sessionRef.current?.destroy()
+    },
+    [],
+  )
 
   function handleAnswerCall() {
     unlockAudioOnUserGesture()
@@ -226,49 +184,37 @@ export default function VoiceCallScreen({ onComplete, onEnd }) {
 
   function handleDeclineCall() {
     userEndedRef.current = true
+    sessionRef.current?.destroy()
     onEnd()
   }
 
   function handleEndCall() {
     userEndedRef.current = true
-    recorderRef.current.cleanup()
+    sessionRef.current?.destroy()
     onEnd()
-  }
-
-  function handleDoneSpeaking() {
-    if (phase === 'listening') processRecording()
-  }
-
-  function handleTapToSpeak() {
-    unlockAudioOnUserGesture()
-    const text = pendingSpeech || pendingSpeechRef.current
-    if (!text) return
-    setNeedsTapToSpeak(false)
-    void (async () => {
-      try {
-        await speakAloud(text)
-        if (!userEndedRef.current && startedRef.current) {
-          await listen()
-        }
-      } catch {
-        setNeedsTapToSpeak(true)
-        setStatusLine('Tap speaker to hear, then speak')
-      }
-    })()
   }
 
   function handleTryAgain() {
     unlockAudioOnUserGesture()
+    userEndedRef.current = false
+    startedRef.current = false
     setErrorMsg('')
-    if (!startedRef.current) {
-      void startCall()
-      return
-    }
-    void listen()
+    void startCall()
   }
 
   const q = VOICE_QUESTIONS[stepIndex]
   const progress = q ? `Question ${q.n} of ${VOICE_QUESTIONS.length}` : 'Complete'
+
+  const avatarRing =
+    uiPhase === UI_PHASE.incoming
+      ? 'animate-pulse ring-4 ring-white/30 ring-offset-4 ring-offset-slate-950'
+      : convState === CONVERSATION_STATE.LISTENING
+        ? 'ring-4 ring-green-400 ring-offset-4 ring-offset-slate-950 animate-pulse'
+        : convState === CONVERSATION_STATE.ASSISTANT_SPEAKING
+          ? 'ring-4 ring-teal-300/50 ring-offset-4 ring-offset-slate-950'
+          : convState === CONVERSATION_STATE.PROCESSING
+            ? 'ring-4 ring-white/20 ring-offset-4 ring-offset-slate-950'
+            : ''
 
   return (
     <div className="fixed inset-0 z-[100] bg-gradient-to-b from-slate-900 via-slate-950 to-black text-white flex flex-col">
@@ -280,11 +226,7 @@ export default function VoiceCallScreen({ onComplete, onEnd }) {
 
       <div className="flex-1 flex flex-col items-center justify-center px-8">
         <div
-          className={`w-32 h-32 rounded-full bg-gradient-to-br from-teal-400 to-emerald-600 flex items-center justify-center shadow-2xl mb-6 ${
-            phase === 'incoming' ? 'animate-pulse ring-4 ring-white/30 ring-offset-4 ring-offset-slate-950' : ''
-          } ${
-            phase === 'listening' ? 'ring-4 ring-green-400 ring-offset-4 ring-offset-slate-950 animate-pulse' : ''
-          } ${phase === 'speaking' ? 'ring-4 ring-teal-300/50 ring-offset-4 ring-offset-slate-950' : ''}`}
+          className={`w-32 h-32 rounded-full bg-gradient-to-br from-teal-400 to-emerald-600 flex items-center justify-center shadow-2xl mb-6 ${avatarRing}`}
         >
           <Leaf size={48} className="text-white" />
         </div>
@@ -297,101 +239,84 @@ export default function VoiceCallScreen({ onComplete, onEnd }) {
           </p>
         )}
 
-        {phase === 'speaking' && !needsTapToSpeak && (
-          <p className="text-teal-300 text-xs mt-3 font-medium">🔊 Assistant is speaking</p>
+        {uiPhase === UI_PHASE.onCall && convState === CONVERSATION_STATE.ASSISTANT_SPEAKING && (
+          <p className="text-teal-300 text-xs mt-3 font-medium">Speak anytime to interrupt</p>
         )}
 
-        {needsTapToSpeak && (
-          <button
-            type="button"
-            onClick={handleTapToSpeak}
-            className="mt-6 flex items-center gap-2 px-5 py-3 rounded-full bg-white/15 hover:bg-white/25 text-sm font-semibold"
-          >
-            <Volume2 size={18} /> Tap to hear assistant
-          </button>
+        {uiPhase === UI_PHASE.onCall && convState === CONVERSATION_STATE.LISTENING && (
+          <p className="text-green-300 text-xs mt-3 font-medium">Go ahead — I am listening</p>
         )}
 
-        {phase === 'error' && (
+        {uiPhase === UI_PHASE.error && (
           <p className="text-red-400 text-sm mt-4 text-center max-w-xs">{errorMsg}</p>
         )}
 
-        {phase === 'blocked' && (
+        {uiPhase === UI_PHASE.blocked && (
           <p className="text-amber-300 text-sm mt-4 text-center max-w-sm leading-relaxed">{errorMsg}</p>
         )}
       </div>
 
       <div className="pb-12 px-8 flex flex-col items-center gap-6">
-        {phase === 'incoming' && (
-          <div className="flex items-center gap-12">
-            <button type="button" onClick={handleDeclineCall}
-              className="w-16 h-16 rounded-full bg-red-500 hover:bg-red-600 active:scale-95 transition-all flex items-center justify-center shadow-lg"
-              aria-label="Decline call">
-              <PhoneOff size={28} className="text-white" />
-            </button>
-            <button type="button" onClick={handleAnswerCall}
-              className="w-20 h-20 rounded-full bg-green-500 hover:bg-green-400 active:scale-95 transition-all flex items-center justify-center shadow-lg shadow-green-500/40 animate-pulse"
-              aria-label="Answer call">
-              <Phone size={36} className="text-white" />
-            </button>
-          </div>
-        )}
-
-        {phase === 'incoming' && (
-          <p className="text-xs text-white/50">Tap the green button to answer</p>
-        )}
-
-        {phase === 'listening' && (
-          <button type="button" onClick={handleDoneSpeaking}
-            className="w-20 h-20 rounded-full bg-green-500 hover:bg-green-400 active:scale-95 transition-all flex items-center justify-center shadow-lg shadow-green-500/40"
-            aria-label="Done speaking">
-            <Mic size={32} className="text-white" />
-          </button>
-        )}
-
-        {phase === 'listening' && (
-          <p className="text-xs text-white/50">Tap the green button when you finish speaking</p>
-        )}
-
-        {phase === 'processing' && (
-          <div className="flex gap-2 items-center text-white/60 text-sm h-20">
-            <span className="w-2 h-2 rounded-full bg-white/60 animate-bounce" />
-            <span className="w-2 h-2 rounded-full bg-white/60 animate-bounce [animation-delay:0.15s]" />
-            <span className="w-2 h-2 rounded-full bg-white/60 animate-bounce [animation-delay:0.3s]" />
-          </div>
-        )}
-
-        {(phase === 'connecting' || phase === 'speaking') && !needsTapToSpeak && (
-          <div className="h-20" />
-        )}
-
-        {phase === 'error' && (
+        {uiPhase === UI_PHASE.incoming && (
           <>
-            <button
-              type="button"
-              onClick={handleTryAgain}
-              className="w-20 h-20 rounded-full bg-green-500 hover:bg-green-400 active:scale-95 transition-all flex items-center justify-center shadow-lg shadow-green-500/40"
-              aria-label="Try again"
-            >
-              <Mic size={32} className="text-white" />
-            </button>
-            <p className="text-xs text-white/50">Tap to try again</p>
+            <div className="flex items-center gap-12">
+              <button
+                type="button"
+                onClick={handleDeclineCall}
+                className="w-16 h-16 rounded-full bg-red-500 hover:bg-red-600 active:scale-95 transition-all flex items-center justify-center shadow-lg"
+                aria-label="Decline call"
+              >
+                <PhoneOff size={28} className="text-white" />
+              </button>
+              <button
+                type="button"
+                onClick={handleAnswerCall}
+                className="w-20 h-20 rounded-full bg-green-500 hover:bg-green-400 active:scale-95 transition-all flex items-center justify-center shadow-lg shadow-green-500/40 animate-pulse"
+                aria-label="Answer call"
+              >
+                <Phone size={36} className="text-white" />
+              </button>
+            </div>
+            <p className="text-xs text-white/50">Tap the green button to answer</p>
           </>
         )}
 
-        {phase !== 'incoming' && phase !== 'blocked' && (
+        {uiPhase === UI_PHASE.onCall && (
+          <p className="text-xs text-white/50 text-center max-w-xs">
+            Just talk — no buttons needed. Say &ldquo;goodbye&rdquo; or tap red to end the call.
+          </p>
+        )}
+
+        {uiPhase === UI_PHASE.error && (
+          <button
+            type="button"
+            onClick={handleTryAgain}
+            className="px-6 py-3 rounded-full bg-green-500 hover:bg-green-400 text-sm font-semibold"
+          >
+            Try again
+          </button>
+        )}
+
+        {uiPhase !== UI_PHASE.incoming && uiPhase !== UI_PHASE.blocked && (
           <>
-            <button type="button" onClick={handleEndCall}
+            <button
+              type="button"
+              onClick={handleEndCall}
               className="w-16 h-16 rounded-full bg-red-500 hover:bg-red-600 active:scale-95 transition-all flex items-center justify-center shadow-lg"
-              aria-label="End call">
+              aria-label="End call"
+            >
               <PhoneOff size={28} className="text-white" />
             </button>
             <p className="text-xs text-white/40">End call</p>
           </>
         )}
 
-        {phase === 'blocked' && (
-          <button type="button" onClick={handleEndCall}
-            className="mt-2 px-6 py-3 rounded-full bg-white/10 hover:bg-white/20 text-sm font-semibold">
+        {uiPhase === UI_PHASE.blocked && (
+          <button
+            type="button"
+            onClick={handleEndCall}
+            className="mt-2 px-6 py-3 rounded-full bg-white/10 hover:bg-white/20 text-sm font-semibold"
+          >
             Go back
           </button>
         )}
