@@ -64,6 +64,11 @@ class Workflow(VoiceWorkflowBase):
         await self.connection.text_output_complete(output, is_done=True)
 
 
+@app.get("/")
+async def health():
+    return {"status": "ok"}
+
+
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     with trace("MakanWell Voice Chat"):
@@ -138,6 +143,7 @@ async def websocket_endpoint(websocket: WebSocket):
 
 
 if __name__ == "__main__":
+    import os
     import uvicorn
 
-    uvicorn.run("server:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run("server:app", host="0.0.0.0", port=int(os.environ.get("PORT", 8000)))
