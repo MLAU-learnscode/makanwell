@@ -2,14 +2,16 @@ import { useEffect, useRef, useState } from 'react'
 import { motion } from 'motion/react'
 import {
   Search, MessageCircle, ChevronRight, ChevronLeft,
-  Send, Leaf, Activity, ArrowRight, X, Sparkles, CheckCircle2, Stethoscope, Mic,
+  Send, Leaf, Activity, ArrowRight, X, Sparkles, CheckCircle2, Stethoscope, Mic, Phone,
 } from 'lucide-react'
+import VoiceCallScreen from './components/VoiceCallScreen.jsx'
 import questionnaire from './data/questionnaire.json'
 import {
   calculateRisk, computeBMI, sortDishesForConditions, getWorstRating,
   fastTrack, CONDITION_LABEL, TIER_DISPLAY, CONDITIONS,
 } from './lib/scoring.js'
 import { isVoiceSupported, listenOnce, speak } from './lib/voice.js'
+import { unlockAudioOnUserGesture } from './lib/voiceApi.js'
 
 const FOOD_CATEGORIES = ['All', 'Rice', 'Noodles', 'Soups', 'Drinks', 'Desserts']
 
@@ -172,7 +174,7 @@ function SideNav({ screen, setScreen }) {
 }
 
 // ── Landing ─────────────────────────────────────────────────────────────
-function LandingScreen({ onCheckRisk, onFastTrack }) {
+function LandingScreen({ onCheckRisk, onFastTrack, onVoiceCall }) {
   return (
     <div className="min-h-screen flex flex-col bg-gradient-to-b from-teal-50 via-background to-background">
       <div className="w-full max-w-6xl mx-auto flex-1 flex flex-col">
@@ -246,6 +248,10 @@ function LandingScreen({ onCheckRisk, onFastTrack }) {
               <button onClick={onFastTrack}
                 className="w-full bg-white text-primary border-2 border-primary/30 rounded-2xl py-4 font-bold text-base flex items-center justify-center gap-2 hover:bg-teal-50 active:scale-[0.98] transition-all">
                 <Stethoscope size={18} /> I Already Have a Diagnosis
+              </button>
+              <button onClick={onVoiceCall}
+                className="w-full bg-emerald-500 text-white rounded-2xl py-4 font-bold text-base flex items-center justify-center gap-2 shadow-lg shadow-emerald-400/30 hover:bg-emerald-600 active:scale-[0.98] transition-all">
+                <Phone size={18} /> Call to Answer by Voice
               </button>
               <p className="text-center sm:text-left text-xs text-muted-foreground mt-1">16-question assessment · ~5 min · No sign-up needed</p>
             </div>
@@ -829,6 +835,7 @@ export default function App() {
   const [screen, setScreen] = useState('landing')
   const [profile, setProfile] = useState(null)
   const [dishes, setDishes] = useState([])
+  const [voiceCallOpen, setVoiceCallOpen] = useState(false)
   const showNav = screen === 'profile' || screen === 'dashboard' || screen === 'chat'
 
   useEffect(() => {
@@ -858,12 +865,42 @@ export default function App() {
     setScreen('dashboard')
   }
 
+  function openVoiceCall() {
+    unlockAudioOnUserGesture()
+    setVoiceCallOpen(true)
+  }
+
+  function handleVoiceCallComplete(answers) {
+    setVoiceCallOpen(false)
+    handleQuestionnaireComplete(sanitiseAnswers(answers))
+  }
+
   return (
     <div className="min-h-screen bg-background">
+      {voiceCallOpen && (
+        <VoiceCallScreen
+          onComplete={handleVoiceCallComplete}
+          onEnd={() => setVoiceCallOpen(false)}
+        />
+      )}
+      {screen === 'landing' && !voiceCallOpen && (
+        <button
+          type="button"
+          onClick={openVoiceCall}
+          className="fixed bottom-6 right-6 z-50 w-16 h-16 rounded-full bg-green-500 hover:bg-green-400 active:scale-95 transition-all shadow-xl shadow-green-500/40 flex items-center justify-center"
+          aria-label="Start voice health check call"
+        >
+          <Phone size={28} className="text-white" strokeWidth={2.2} />
+        </button>
+      )}
       {showNav && <SideNav screen={screen} setScreen={setScreen} />}
       <main className={`min-h-screen ${showNav ? 'md:ml-56' : ''}`}>
         {screen === 'landing' && (
-          <LandingScreen onCheckRisk={() => setScreen('assessment')} onFastTrack={() => setScreen('fast-track')} />
+          <LandingScreen
+            onCheckRisk={() => setScreen('assessment')}
+            onFastTrack={() => setScreen('fast-track')}
+            onVoiceCall={openVoiceCall}
+          />
         )}
         {screen === 'fast-track' && <FastTrackScreen onComplete={handleFastTrackComplete} />}
         {screen === 'assessment' && <AssessmentScreen onComplete={handleQuestionnaireComplete} />}
