@@ -1,13 +1,9 @@
 import Anthropic from '@anthropic-ai/sdk'
 
-// Vercel serverless function: POST /api/chat
-// Holds ANTHROPIC_API_KEY server-side and proxies to Claude. The browser calls
-// this endpoint, never api.anthropic.com directly, so the key stays secret.
+const MODEL = 'claude-3-5-sonnet-latest'
+const MAX_MESSAGES = 40
+const MAX_CONTENT_LENGTH = 4000
 
-const MODEL = 'claude-sonnet-4-6'
-
-// Build a system prompt tuned to the user's health profile so the advisor's
-// tips line up with MakanWell's traffic-light thresholds.
 function buildSystemPrompt(profile = {}) {
   const conditions =
     Array.isArray(profile.conditions) && profile.conditions.length
@@ -32,24 +28,37 @@ function buildSystemPrompt(profile = {}) {
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
-    res.status(405).json({ error: 'Method not allowed. Use POST.' })
-    return
+    return res.status(405).json({ error: 'Method not allowed. Use POST.' })
   }
 
   if (!process.env.ANTHROPIC_API_KEY) {
-    res.status(500).json({ error: 'Server is missing ANTHROPIC_API_KEY.' })
-    return
+    return res.status(500).json({ error: 'Server is missing ANTHROPIC_API_KEY.' })
+  }
+
+  const { messages, profile } = req.body || {}
+
+  if (!Array.isArray(messages) || messages.length === 0) {
+    return res.status(400).json({ error: 'Body must include a non-empty "messages" array.' })
+  }
+
+  // Layer 1: cap message count to prevent abuse
+  if (messages.length > MAX_MESSAGES) {
+    return res.status(400).json({ error: `Too many messages (max ${MAX_MESSAGES}).` })
+  }
+
+  // Layer 2: sanitise each message — only allow valid roles and reasonable length
+  const VALID_ROLES = new Set(['user', 'assistant'])
+  for (const msg of messages) {
+    if (!VALID_ROLES.has(msg.role)) {
+      return res.status(400).json({ error: `Invalid message role: ${msg.role}` })
+    }
+    if (typeof msg.content !== 'string' || msg.content.length > MAX_CONTENT_LENGTH) {
+      return res.status(400).json({ error: `Message content too long (max ${MAX_CONTENT_LENGTH} chars).` })
+    }
   }
 
   try {
-    const { messages, profile } = req.body || {}
-
-    if (!Array.isArray(messages) || messages.length === 0) {
-      res.status(400).json({ error: 'Body must include a non-empty "messages" array.' })
-      return
-    }
-
-    const client = new Anthropic() // reads ANTHROPIC_API_KEY from env
+    const client = new Anthropic()
 
     const response = await client.messages.create({
       model: MODEL,

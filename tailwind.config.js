@@ -4,15 +4,40 @@ export default {
   theme: {
     extend: {
       colors: {
-        // Traffic-light ratings (see workplan colour decisions)
-        safe: '#16a34a', // green  — universal safe signal
-        modify: '#d97706', // amber — caution, not danger
-        avoid: '#dc2626', // red    — clear danger
-        // Brand
-        primary: '#0d9488', // teal — health + hawker
+        background: '#F2F7F5',
+        foreground: '#162420',
+        card: '#ffffff',
+        primary: {
+          DEFAULT: '#0D9488',
+          foreground: '#ffffff',
+        },
+        secondary: {
+          DEFAULT: '#E6F2F0',
+          foreground: '#0D9488',
+        },
+        muted: {
+          DEFAULT: '#E8EDEB',
+          foreground: '#6B827C',
+        },
+        accent: {
+          DEFAULT: '#CCEDE9',
+          foreground: '#0D7A6F',
+        },
+        destructive: '#DC2626',
+        border: 'rgba(13, 148, 136, 0.12)',
+        safe: '#16a34a',
+        modify: '#d97706',
+        avoid: '#dc2626',
       },
-      backgroundColor: {
-        canvas: '#f9fafb', // near-white clinical background
+      borderRadius: {
+        lg: '1rem',
+        xl: '1.25rem',
+        '2xl': '1rem',
+        '3xl': '1.5rem',
+      },
+      fontFamily: {
+        sans: ['"Plus Jakarta Sans"', 'system-ui', 'sans-serif'],
+        mono: ['"DM Mono"', 'monospace'],
       },
     },
   },

@@ -27,3 +27,8 @@ dist-ssr
 
 # Vercel
 .vercel
+
+# Python voice server
+server/.venv
+
+.env*
