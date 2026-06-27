@@ -2,14 +2,14 @@ import { useEffect, useRef, useState } from 'react'
 import { motion } from 'motion/react'
 import {
   Search, MessageCircle, ChevronRight, ChevronLeft,
-  Send, Leaf, Activity, ArrowRight, X, Sparkles, CheckCircle2, Stethoscope, Mic,
+  Leaf, Activity, ArrowRight, X, CheckCircle2, Stethoscope,
 } from 'lucide-react'
 import questionnaire from './data/questionnaire.json'
 import {
   calculateRisk, computeBMI, sortDishesForConditions, getWorstRating,
   fastTrack, CONDITION_LABEL, TIER_DISPLAY, CONDITIONS,
 } from './lib/scoring.js'
-import { isVoiceSupported, listenOnce, speak } from './lib/voice.js'
+import ChatWindow from './components/chat/ChatWindow.jsx'
 
 const FOOD_CATEGORIES = ['All', 'Rice', 'Noodles', 'Soups', 'Drinks', 'Desserts']
 
@@ -120,6 +120,8 @@ function MacroPill({ label, value, unit, color, text }) {
   )
 }
 
+const MOBILE_NAV_H = 'pb-[calc(3.75rem+env(safe-area-inset-bottom))] md:pb-0'
+
 const NAV_TABS = [
   { id: 'profile', icon: Activity, label: 'Profile' },
   { id: 'dashboard', icon: Search, label: 'Food' },
@@ -172,11 +174,11 @@ function SideNav({ screen, setScreen }) {
 }
 
 // ── Landing ─────────────────────────────────────────────────────────────
-function LandingScreen({ onCheckRisk, onFastTrack }) {
+function LandingScreen({ onCheckRisk, onFastTrack, onChatWithAI }) {
   return (
-    <div className="min-h-screen flex flex-col bg-gradient-to-b from-teal-50 via-background to-background">
-      <div className="w-full max-w-6xl mx-auto flex-1 flex flex-col">
-        <div className="px-5 sm:px-8 pt-10 sm:pt-12 md:pt-14 pb-2 flex items-center justify-between">
+    <div className="h-dvh flex flex-col overflow-hidden bg-gradient-to-b from-teal-50 via-background to-background">
+      <div className="w-full max-w-6xl mx-auto flex-1 flex flex-col min-h-0">
+        <div className="px-5 sm:px-8 pt-5 sm:pt-6 md:pt-8 pb-1 flex items-center justify-between flex-shrink-0">
           <div className="flex items-center gap-2">
             <div className="w-8 h-8 rounded-xl bg-primary flex items-center justify-center shadow-sm">
               <Leaf size={15} className="text-white" />
@@ -186,9 +188,9 @@ function LandingScreen({ onCheckRisk, onFastTrack }) {
           <span className="text-xs text-muted-foreground font-semibold bg-white border border-border px-3 py-1 rounded-full shadow-sm">🇸🇬 Singapore</span>
         </div>
 
-        <div className="flex-1 px-5 sm:px-8 pt-6 pb-8 lg:grid lg:grid-cols-2 lg:gap-12 lg:items-center">
+        <div className="flex-1 min-h-0 overflow-y-auto px-5 sm:px-8 pt-3 pb-4 lg:grid lg:grid-cols-2 lg:gap-8 lg:items-center lg:overflow-visible">
           <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}
-            className="relative w-full h-56 sm:h-64 lg:h-80 rounded-3xl bg-gradient-to-br from-teal-500 via-teal-600 to-emerald-700 flex items-center justify-center mb-8 lg:mb-0 overflow-hidden shadow-2xl shadow-teal-300/40">
+            className="relative w-full h-36 sm:h-48 lg:h-72 rounded-3xl bg-gradient-to-br from-teal-500 via-teal-600 to-emerald-700 flex items-center justify-center mb-4 lg:mb-0 overflow-hidden shadow-2xl shadow-teal-300/40">
             <div className="absolute inset-0 select-none pointer-events-none">
               <span className="absolute top-5 left-5 text-5xl opacity-20 rotate-12">🍜</span>
               <span className="absolute top-10 right-8 text-4xl opacity-20 -rotate-6">🍛</span>
@@ -196,30 +198,30 @@ function LandingScreen({ onCheckRisk, onFastTrack }) {
               <span className="absolute bottom-5 right-6 text-3xl opacity-20 rotate-6">🥘</span>
             </div>
             <div className="relative z-10 text-center px-6">
-              <div className="text-6xl lg:text-7xl mb-3">🫀</div>
-              <div className="text-white text-xl lg:text-2xl font-bold mb-1">Eat Smart. Live Well.</div>
-              <div className="text-teal-100 text-sm lg:text-base">At your favourite hawker centre</div>
+              <div className="text-5xl lg:text-6xl mb-2">🫀</div>
+              <div className="text-white text-lg lg:text-xl font-bold mb-0.5">Eat Smart. Live Well.</div>
+              <div className="text-teal-100 text-xs lg:text-sm">At your favourite hawker centre</div>
             </div>
           </motion.div>
 
           <div className="flex flex-col">
             <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, delay: 0.1 }}>
-              <h1 className="text-[28px] sm:text-3xl lg:text-4xl font-extrabold text-foreground leading-tight mb-3">
+              <h1 className="text-2xl sm:text-3xl lg:text-4xl font-extrabold text-foreground leading-tight mb-2">
                 Healthier hawker choices,<br className="hidden sm:block" /> made easy.
               </h1>
-              <p className="text-muted-foreground text-sm sm:text-base leading-relaxed mb-8 max-w-xl">
+              <p className="text-muted-foreground text-sm leading-relaxed mb-4 max-w-xl">
                 Personalised food recommendations for your health — right at Singapore&apos;s hawker centres.
               </p>
             </motion.div>
 
-            <div className="space-y-3 sm:grid sm:grid-cols-2 lg:grid-cols-1 sm:gap-3 sm:space-y-0 mb-8">
+            <div className="space-y-2 sm:grid sm:grid-cols-2 lg:grid-cols-1 sm:gap-2 sm:space-y-0 mb-4">
               {[
                 { icon: '🎯', title: 'Personalised for you', desc: 'Based on your health conditions and goals' },
                 { icon: '🚦', title: 'Traffic light ratings', desc: 'Know instantly what is safe, modify, or avoid' },
                 { icon: '🤖', title: 'AI nutrition assistant', desc: 'Get instant answers about any hawker dish' },
               ].map((b, i) => (
                 <motion.div key={b.title} initial={{ opacity: 0, x: -12 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.4, delay: 0.2 + i * 0.08 }}
-                  className={`flex items-center gap-4 bg-white rounded-2xl p-4 shadow-sm border border-border ${i === 2 ? 'sm:col-span-2 lg:col-span-1' : ''}`}>
+                  className={`flex items-center gap-3 bg-white rounded-2xl p-3 shadow-sm border border-border ${i === 2 ? 'sm:col-span-2 lg:col-span-1' : ''}`}>
                   <span className="text-2xl">{b.icon}</span>
                   <div>
                     <div className="font-semibold text-sm text-foreground">{b.title}</div>
@@ -229,7 +231,7 @@ function LandingScreen({ onCheckRisk, onFastTrack }) {
               ))}
             </div>
 
-            <div className="flex flex-wrap items-center justify-center sm:justify-start gap-x-5 gap-y-2 mb-8">
+            <div className="hidden sm:flex flex-wrap items-center justify-start gap-x-4 gap-y-1 mb-4">
               {['HPB Guidelines', 'Nutritionist Verified', 'Free'].map((t) => (
                 <div key={t} className="flex items-center gap-1 text-[11px] text-muted-foreground font-medium">
                   <CheckCircle2 size={12} className="text-emerald-500 flex-shrink-0" />
@@ -238,16 +240,20 @@ function LandingScreen({ onCheckRisk, onFastTrack }) {
               ))}
             </div>
 
-            <div className="max-w-md lg:max-w-none space-y-3">
+            <div className="max-w-md lg:max-w-none space-y-2 flex-shrink-0">
               <button onClick={onCheckRisk}
-                className="w-full bg-primary text-white rounded-2xl py-4 font-bold text-base flex items-center justify-center gap-2 shadow-lg shadow-teal-400/30 hover:bg-teal-700 active:scale-[0.98] transition-all">
+                className="w-full bg-primary text-white rounded-2xl py-3.5 font-bold text-sm sm:text-base flex items-center justify-center gap-2 shadow-lg shadow-teal-400/30 hover:bg-teal-700 active:scale-[0.98] transition-all">
                 Check My Risk <ArrowRight size={18} />
               </button>
               <button onClick={onFastTrack}
-                className="w-full bg-white text-primary border-2 border-primary/30 rounded-2xl py-4 font-bold text-base flex items-center justify-center gap-2 hover:bg-teal-50 active:scale-[0.98] transition-all">
+                className="w-full bg-white text-primary border-2 border-primary/30 rounded-2xl py-3.5 font-bold text-sm sm:text-base flex items-center justify-center gap-2 hover:bg-teal-50 active:scale-[0.98] transition-all">
                 <Stethoscope size={18} /> I Already Have a Diagnosis
               </button>
-              <p className="text-center sm:text-left text-xs text-muted-foreground mt-1">16-question assessment · ~5 min · No sign-up needed</p>
+              <button onClick={onChatWithAI}
+                className="w-full bg-white text-foreground border border-border rounded-2xl py-3.5 font-bold text-sm sm:text-base flex items-center justify-center gap-2 hover:bg-muted/50 active:scale-[0.98] transition-all">
+                <MessageCircle size={18} className="text-primary" /> Chat with AI
+              </button>
+              <p className="text-center sm:text-left text-[11px] text-muted-foreground">16-question assessment · ~5 min · No sign-up needed</p>
             </div>
           </div>
         </div>
@@ -265,13 +271,13 @@ function FastTrackScreen({ onComplete }) {
   }
 
   return (
-    <div className="min-h-screen bg-background flex flex-col">
-      <div className="w-full max-w-3xl mx-auto flex-1 flex flex-col">
-        <div className="px-5 sm:px-8 pt-10 sm:pt-12 md:pt-14 pb-6">
-          <h2 className="text-2xl sm:text-3xl font-extrabold text-foreground mb-2">Your diagnosis</h2>
-          <p className="text-muted-foreground text-sm sm:text-base">Select all conditions you have been diagnosed with. We&apos;ll filter your food guide immediately.</p>
+    <div className="h-dvh flex flex-col overflow-hidden bg-background">
+      <div className="w-full max-w-3xl mx-auto flex-1 flex flex-col min-h-0">
+        <div className="px-5 sm:px-8 pt-5 sm:pt-6 pb-3 flex-shrink-0">
+          <h2 className="text-xl sm:text-2xl font-extrabold text-foreground mb-1">Your diagnosis</h2>
+          <p className="text-muted-foreground text-sm">Select all conditions you have been diagnosed with. We&apos;ll filter your food guide immediately.</p>
         </div>
-        <div className="flex-1 px-5 sm:px-8 space-y-3">
+        <div className="flex-1 min-h-0 overflow-y-auto px-5 sm:px-8 space-y-2.5 pb-2">
           {FAST_TRACK_OPTS.map((opt) => {
             const sel = selected.includes(opt.v)
             return (
@@ -286,9 +292,9 @@ function FastTrackScreen({ onComplete }) {
             )
           })}
         </div>
-        <div className="px-5 sm:px-8 py-8">
+        <div className="px-5 sm:px-8 py-4 flex-shrink-0 pb-[calc(1rem+env(safe-area-inset-bottom))]">
           <button onClick={() => onComplete(selected)} disabled={selected.length === 0}
-            className={`w-full sm:max-w-md sm:mx-auto rounded-2xl py-4 font-bold text-base flex items-center justify-center gap-2 transition-all ${selected.length > 0 ? 'bg-primary text-white shadow-lg shadow-teal-300/30 hover:bg-teal-700' : 'bg-muted text-muted-foreground cursor-not-allowed'}`}>
+            className={`w-full sm:max-w-md sm:mx-auto rounded-2xl py-3.5 font-bold text-base flex items-center justify-center gap-2 transition-all ${selected.length > 0 ? 'bg-primary text-white shadow-lg shadow-teal-300/30 hover:bg-teal-700' : 'bg-muted text-muted-foreground cursor-not-allowed'}`}>
             Go to Food Guide <ArrowRight size={18} />
           </button>
         </div>
@@ -371,10 +377,10 @@ function AssessmentScreen({ onComplete }) {
   const isFav = q.id === 'favCategories'
 
   return (
-    <div className="min-h-screen bg-background flex flex-col">
-      <div className="w-full max-w-3xl mx-auto flex-1 flex flex-col">
-        <div className="px-5 sm:px-8 pt-10 sm:pt-12 md:pt-14 pb-6">
-          <div className="flex items-center justify-between mb-4">
+    <div className="h-dvh flex flex-col overflow-hidden bg-background">
+      <div className="w-full max-w-3xl mx-auto flex-1 flex flex-col min-h-0">
+        <div className="px-5 sm:px-8 pt-5 sm:pt-6 pb-3 flex-shrink-0">
+          <div className="flex items-center justify-between mb-3">
             <button onClick={() => step > 0 && setStep(step - 1)}
               className={`w-9 h-9 flex items-center justify-center rounded-xl transition-all ${step > 0 ? 'bg-muted text-muted-foreground hover:bg-accent' : 'opacity-0 pointer-events-none'}`}>
               <ChevronLeft size={18} />
@@ -387,13 +393,13 @@ function AssessmentScreen({ onComplete }) {
           </div>
         </div>
 
-        <div className="flex-1 px-5 sm:px-8">
+        <div className="flex-1 min-h-0 overflow-y-auto px-5 sm:px-8 pb-2">
           <motion.div key={step} initial={{ opacity: 0, x: 16 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.3 }}>
-            <h2 className="text-2xl sm:text-3xl font-extrabold text-foreground mb-2">{q.prompt}</h2>
-            {q.note && <p className="text-muted-foreground text-sm sm:text-base mb-2">{q.note}</p>}
-            {q.examples && <p className="text-xs text-muted-foreground/80 mb-6 italic">e.g. {q.examples}</p>}
-            {!q.examples && !q.note && <div className="mb-6" />}
-            {q.note && !q.examples && <div className="mb-4" />}
+            <h2 className="text-xl sm:text-2xl font-extrabold text-foreground mb-1.5">{q.prompt}</h2>
+            {q.note && <p className="text-muted-foreground text-sm mb-1.5">{q.note}</p>}
+            {q.examples && <p className="text-xs text-muted-foreground/80 mb-4 italic">e.g. {q.examples}</p>}
+            {!q.examples && !q.note && <div className="mb-4" />}
+            {q.note && !q.examples && <div className="mb-2" />}
 
             {q.type === 'bmi' && (
               <div className="space-y-4">
@@ -464,9 +470,9 @@ function AssessmentScreen({ onComplete }) {
           </motion.div>
         </div>
 
-        <div className="px-5 sm:px-8 py-8">
+        <div className="px-5 sm:px-8 py-4 flex-shrink-0 pb-[calc(1rem+env(safe-area-inset-bottom))]">
           <button onClick={next} disabled={!canProceed()}
-            className={`w-full sm:max-w-md sm:mx-auto rounded-2xl py-4 font-bold text-base flex items-center justify-center gap-2 transition-all ${canProceed() ? 'bg-primary text-white shadow-lg shadow-teal-300/30 hover:bg-teal-700 active:scale-[0.98]' : 'bg-muted text-muted-foreground cursor-not-allowed'}`}>
+            className={`w-full sm:max-w-md sm:mx-auto rounded-2xl py-3.5 font-bold text-base flex items-center justify-center gap-2 transition-all ${canProceed() ? 'bg-primary text-white shadow-lg shadow-teal-300/30 hover:bg-teal-700 active:scale-[0.98]' : 'bg-muted text-muted-foreground cursor-not-allowed'}`}>
             {step === questions.length - 1 ? 'See my risk profile' : 'Continue'} <ChevronRight size={18} />
           </button>
         </div>
@@ -483,20 +489,19 @@ function ProfileScreen({ profile, onExplore }) {
   const tierCopy = highestTier ? TIER_DISPLAY[highestTier] : null
 
   return (
-    <div className="min-h-screen bg-background pb-24 md:pb-8">
-      <div className="w-full max-w-5xl mx-auto">
-        <div className="bg-gradient-to-br from-teal-500 to-emerald-600 px-5 sm:px-8 pt-10 sm:pt-12 md:pt-14 pb-12">
-          <div className="flex items-center gap-2 mb-5">
+    <div className={`h-dvh flex flex-col overflow-hidden bg-background ${MOBILE_NAV_H}`}>
+      <div className="bg-gradient-to-br from-teal-500 to-emerald-600 px-5 sm:px-8 pt-5 sm:pt-6 pb-8 flex-shrink-0">
+          <div className="flex items-center gap-2 mb-3">
             <div className="w-7 h-7 rounded-xl bg-white/20 flex items-center justify-center"><Leaf size={14} className="text-white" /></div>
             <span className="text-white font-bold tracking-tight">HawkerHealth</span>
           </div>
-          <h2 className="text-2xl sm:text-3xl font-extrabold text-white mb-1">{isFastTrack ? 'Your Health Profile' : 'Your Risk Profile'}</h2>
-          <p className="text-teal-100 text-sm sm:text-base">
+          <h2 className="text-xl sm:text-2xl font-extrabold text-white mb-0.5">{isFastTrack ? 'Your Health Profile' : 'Your Risk Profile'}</h2>
+          <p className="text-teal-100 text-sm">
             {isFastTrack ? 'Food guide personalised to your diagnosed conditions' : 'Based on your 16-question lifestyle assessment'}
           </p>
         </div>
 
-        <div className="px-5 sm:px-8 -mt-8 space-y-4">
+        <div className="flex-1 min-h-0 overflow-y-auto w-full max-w-5xl mx-auto px-5 sm:px-8 -mt-6 space-y-3 pb-4">
           {isFastTrack ? (
             <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} className="bg-white rounded-3xl p-5 shadow-md border border-border/40">
               <div className="text-xs font-semibold text-muted-foreground mb-3 uppercase tracking-wider">Confirmed Conditions</div>
@@ -545,12 +550,11 @@ function ProfileScreen({ profile, onExplore }) {
           )}
 
           <button onClick={onExplore}
-            className="w-full sm:max-w-md sm:mx-auto bg-primary text-white rounded-2xl py-4 font-bold text-base flex items-center justify-center gap-2 shadow-lg shadow-teal-300/30 hover:bg-teal-700 active:scale-[0.98] transition-all">
+            className="w-full sm:max-w-md sm:mx-auto bg-primary text-white rounded-2xl py-3.5 font-bold text-base flex items-center justify-center gap-2 shadow-lg shadow-teal-300/30 hover:bg-teal-700 active:scale-[0.98] transition-all">
             Explore Food Recommendations <ArrowRight size={18} />
           </button>
-          <p className="text-center text-[11px] text-muted-foreground pb-2">Risk scores are for general reference only. Consult a healthcare professional for diagnosis.</p>
+          <p className="text-center text-[11px] text-muted-foreground">Risk scores are for general reference only. Consult a healthcare professional for diagnosis.</p>
         </div>
-      </div>
     </div>
   )
 }
@@ -653,12 +657,12 @@ function DashboardScreen({ profile, dishes }) {
   const avoidCnt = filtered.filter((f) => getWorstRating(f, primary) === 'avoid').length
 
   return (
-    <div className="min-h-screen bg-background pb-28 md:pb-8">
-      <div className="w-full max-w-6xl mx-auto px-5 sm:px-8">
-        <div className="pt-10 sm:pt-12 md:pt-14 pb-4 md:flex md:items-end md:justify-between md:gap-6">
-          <div className="mb-4 md:mb-0">
-            <h2 className="text-2xl sm:text-3xl font-extrabold text-foreground mb-0.5">Food Guide</h2>
-            <p className="text-sm text-muted-foreground">Tap any dish for full nutrition details</p>
+    <div className={`h-dvh flex flex-col overflow-hidden bg-background ${MOBILE_NAV_H}`}>
+      <div className="w-full max-w-6xl mx-auto px-5 sm:px-8 flex-shrink-0">
+        <div className="pt-5 sm:pt-6 pb-3 md:flex md:items-end md:justify-between md:gap-6">
+          <div className="mb-3 md:mb-0">
+            <h2 className="text-xl sm:text-2xl font-extrabold text-foreground mb-0.5">Food Guide</h2>
+            <p className="text-xs sm:text-sm text-muted-foreground">Tap any dish for full nutrition details</p>
           </div>
           <div className="hidden md:block flex-1 max-w-md">
             <div className="flex items-center gap-3 bg-white border border-border rounded-2xl px-4 py-3 shadow-sm">
@@ -670,7 +674,7 @@ function DashboardScreen({ profile, dishes }) {
           </div>
         </div>
 
-        <div className="flex flex-wrap gap-3 mb-4">
+        <div className="flex flex-wrap gap-2 mb-3">
           <div className="flex items-center gap-1.5 bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-1.5">
             <span className="w-2 h-2 rounded-full bg-emerald-500" />
             <span className="text-xs font-semibold text-emerald-700">{safeCnt} Safe</span>
@@ -688,7 +692,7 @@ function DashboardScreen({ profile, dishes }) {
           )}
         </div>
 
-        <div className="md:hidden mb-4">
+        <div className="md:hidden mb-3">
           <div className="flex items-center gap-3 bg-white border border-border rounded-2xl px-4 py-3 shadow-sm">
             <Search size={16} className="text-muted-foreground flex-shrink-0" />
             <input value={query} onChange={(e) => { setQuery(e.target.value); if (e.target.value) setCategory('All') }} placeholder="Search dishes..."
@@ -697,7 +701,7 @@ function DashboardScreen({ profile, dishes }) {
           </div>
         </div>
 
-        <div className="flex flex-wrap md:flex-nowrap gap-2 mb-5 overflow-x-auto scrollbar-hide pb-1">
+        <div className="flex flex-wrap md:flex-nowrap gap-2 mb-3 overflow-x-auto scrollbar-hide pb-1">
           {FOOD_CATEGORIES.map((cat) => (
             <button key={cat} onClick={() => setCategory(cat)}
               className={`flex-shrink-0 px-4 py-2 rounded-full text-xs font-bold transition-all ${category === cat ? 'bg-primary text-white shadow-sm' : 'bg-white border border-border text-muted-foreground hover:border-teal-300'}`}>
@@ -705,8 +709,10 @@ function DashboardScreen({ profile, dishes }) {
             </button>
           ))}
         </div>
+      </div>
 
-        <div className="space-y-3 md:grid md:grid-cols-2 xl:grid-cols-3 md:gap-4 md:space-y-0 pb-4">
+        <div className="flex-1 min-h-0 overflow-y-auto w-full max-w-6xl mx-auto px-5 sm:px-8 pb-4">
+        <div className="space-y-3 md:grid md:grid-cols-2 xl:grid-cols-3 md:gap-4 md:space-y-0">
           {filtered.map((food) => {
             const light = getWorstRating(food, primary)
             const open = expanded === food.id
@@ -827,147 +833,6 @@ function DashboardScreen({ profile, dishes }) {
   )
 }
 
-// ── Chat ────────────────────────────────────────────────────────────────
-function ChatScreen({ profile }) {
-  const [msgs, setMsgs] = useState([
-    { role: 'ai', text: "Hi there! 👋 I'm your AI nutrition assistant. Ask me anything about hawker food and your health — calorie counts, what's safe for diabetes, or which dishes to avoid with high blood pressure." },
-  ])
-  const [input, setInput] = useState('')
-  const [typing, setTyping] = useState(false)
-  const bottomRef = useRef(null)
-  const primary = profile?.primaryConditions ?? []
-  const tier = profile?.riskScore?.tier?.[primary[0]] ?? 'Moderate'
-
-  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [msgs, typing])
-
-  async function send(text) {
-    const message = (text ?? input).trim()
-    if (!message || typing) return
-    const userMsgs = [...msgs, { role: 'user', text: message }]
-    setMsgs(userMsgs)
-    setInput('')
-    setTyping(true)
-    try {
-      const apiMessages = userMsgs.filter((m) => m.role === 'user' || m.role === 'ai').map((m) => ({
-        role: m.role === 'ai' ? 'assistant' : 'user',
-        content: m.text,
-      }))
-      const res = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          profile: { tier, conditions: primary },
-          messages: apiMessages,
-        }),
-      })
-      if (!res.ok) throw new Error(`API error: ${res.status}`)
-      const data = await res.json()
-      const answer = data.reply || data.error || 'No response.'
-      setMsgs((prev) => [...prev, { role: 'ai', text: answer }])
-      if (data.reply) speak(data.reply)
-    } catch (err) {
-      const errMsg = err.message.includes('fetch')
-        ? '⚠️ API not available locally. Deploy to Vercel or use `vercel dev` to test the chat feature.'
-        : `Error: ${err.message}`
-      setMsgs((prev) => [...prev, { role: 'ai', text: errMsg }])
-    } finally {
-      setTyping(false)
-    }
-  }
-
-  async function handleMic() {
-    try {
-      const transcript = await listenOnce()
-      setInput(transcript)
-      send(transcript)
-    } catch (e) {
-      setMsgs((prev) => [...prev, { role: 'ai', text: e.message }])
-    }
-  }
-
-  const showSuggestions = msgs.length === 1
-
-  return (
-    <div className="h-[100dvh] md:h-screen flex flex-col bg-background pb-[4.5rem] md:pb-0">
-      <div className="w-full max-w-4xl mx-auto flex flex-col flex-1 min-h-0">
-        <div className="px-5 sm:px-8 pt-10 sm:pt-12 md:pt-8 pb-4 bg-white border-b border-border flex-shrink-0">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-teal-500 to-emerald-500 flex items-center justify-center shadow-sm">
-              <Sparkles size={18} className="text-white" />
-            </div>
-            <div>
-              <div className="font-extrabold text-sm sm:text-base text-foreground">AI Nutrition Assistant</div>
-              <div className="flex items-center gap-1.5 text-xs text-emerald-600 font-semibold">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" /> Online
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div className="flex-1 overflow-y-auto px-5 sm:px-8 py-5 space-y-4">
-          {msgs.map((msg, i) => (
-            <div key={i} className={`flex gap-2 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-              {msg.role === 'ai' && (
-                <div className="w-7 h-7 rounded-xl bg-gradient-to-br from-teal-500 to-emerald-500 flex items-center justify-center flex-shrink-0 mt-1 shadow-sm">
-                  <Sparkles size={13} className="text-white" />
-                </div>
-              )}
-              <div className={`max-w-[85%] sm:max-w-[75%] md:max-w-md rounded-3xl px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap ${
-                msg.role === 'user' ? 'bg-primary text-white rounded-br-lg shadow-sm' : 'bg-white text-foreground border border-border/60 shadow-sm rounded-bl-lg'
-              }`}>{msg.text}</div>
-            </div>
-          ))}
-          {typing && (
-            <div className="flex gap-2 items-center">
-              <div className="w-7 h-7 rounded-xl bg-gradient-to-br from-teal-500 to-emerald-500 flex items-center justify-center shadow-sm">
-                <Sparkles size={13} className="text-white" />
-              </div>
-              <div className="bg-white border border-border/60 shadow-sm rounded-3xl rounded-bl-lg px-4 py-3">
-                <div className="flex gap-1.5 items-center h-4">
-                  {[0, 1, 2].map((idx) => (
-                    <span key={idx} className="w-1.5 h-1.5 rounded-full bg-muted-foreground/50 animate-bounce" style={{ animationDelay: `${idx * 0.15}s` }} />
-                  ))}
-                </div>
-              </div>
-            </div>
-          )}
-          {showSuggestions && (
-            <div>
-              <p className="text-xs text-muted-foreground mb-3 text-center font-medium">Suggested questions</p>
-              <div className="space-y-2 sm:grid sm:grid-cols-2 sm:gap-2 sm:space-y-0">
-                {CHAT_SUGGESTIONS.map((s) => (
-                  <button key={s} onClick={() => send(s)}
-                    className="w-full text-left bg-white border border-border/60 rounded-2xl px-4 py-3 text-sm font-medium hover:border-primary hover:bg-teal-50/40 transition-all shadow-sm">
-                    {s}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-          <div ref={bottomRef} />
-        </div>
-
-        <div className="px-5 sm:px-8 py-4 bg-white border-t border-border flex-shrink-0 pb-[calc(1rem+env(safe-area-inset-bottom))] md:pb-4">
-          <div className="flex items-center gap-3 bg-muted/50 rounded-2xl px-4 py-3">
-            <input value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && send()}
-              placeholder="Ask about any hawker dish..." className="flex-1 outline-none text-sm bg-transparent" />
-            {isVoiceSupported() && (
-              <button onClick={handleMic} disabled={typing} className="w-8 h-8 rounded-xl flex items-center justify-center text-muted-foreground hover:bg-white transition-all" title="Speak">
-                <Mic size={16} />
-              </button>
-            )}
-            <button onClick={() => send()} disabled={!input.trim() || typing}
-              className={`w-8 h-8 rounded-xl flex items-center justify-center transition-all flex-shrink-0 ${input.trim() && !typing ? 'bg-primary text-white shadow-sm hover:bg-teal-700' : 'bg-muted text-muted-foreground'}`}>
-              <Send size={14} />
-            </button>
-          </div>
-          <p className="text-center text-[10px] text-muted-foreground mt-2">AI responses are for general reference only. Consult a healthcare professional.</p>
-        </div>
-      </div>
-    </div>
-  )
-}
-
 // ── Root ────────────────────────────────────────────────────────────────
 export default function App() {
   const [screen, setScreen] = useState('landing')
@@ -1002,18 +867,44 @@ export default function App() {
     setScreen('dashboard')
   }
 
+  function handleAiIntakeComplete(completedProfile) {
+    setProfile(completedProfile)
+    setScreen('dashboard')
+  }
+
   return (
-    <div className="min-h-screen bg-background">
+    <div className="h-dvh overflow-hidden bg-background">
       {showNav && <SideNav screen={screen} setScreen={setScreen} />}
-      <main className={`min-h-screen ${showNav ? 'md:ml-56' : ''}`}>
+      <main className={`h-full overflow-hidden ${showNav ? 'md:ml-56' : ''}`}>
         {screen === 'landing' && (
-          <LandingScreen onCheckRisk={() => setScreen('assessment')} onFastTrack={() => setScreen('fast-track')} />
+          <LandingScreen
+            onCheckRisk={() => setScreen('assessment')}
+            onFastTrack={() => setScreen('fast-track')}
+            onChatWithAI={() => setScreen('ai-intake')}
+          />
+        )}
+        {screen === 'ai-intake' && (
+          <ChatWindow
+            mode="intake"
+            title="AI Health Intake"
+            subtitle="Tell me about yourself — type or speak"
+            onComplete={handleAiIntakeComplete}
+            onBack={() => setScreen('landing')}
+          />
         )}
         {screen === 'fast-track' && <FastTrackScreen onComplete={handleFastTrackComplete} />}
         {screen === 'assessment' && <AssessmentScreen onComplete={handleQuestionnaireComplete} />}
         {screen === 'profile' && profile && <ProfileScreen profile={profile} onExplore={() => setScreen('dashboard')} />}
         {screen === 'dashboard' && <DashboardScreen profile={profile} dishes={dishes} />}
-        {screen === 'chat' && <ChatScreen profile={profile} />}
+        {screen === 'chat' && (
+          <ChatWindow
+            mode="advisor"
+            profile={profile}
+            suggestions={CHAT_SUGGESTIONS}
+            onViewFood={() => setScreen('dashboard')}
+            showNavPadding
+          />
+        )}
       </main>
       {showNav && <BottomNav screen={screen} setScreen={setScreen} />}
     </div>

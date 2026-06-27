@@ -12,10 +12,13 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.71.0",
+    "concurrently": "^9.1.2",
     "lucide-react": "^0.487.0",
     "motion": "^12.23.24",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react-dom": "^18.3.1",
+    "react-markdown": "^9.0.3",
+    "wavtools": "^0.1.5"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.3.4",
