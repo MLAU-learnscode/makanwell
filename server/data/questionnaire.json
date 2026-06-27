@@ -1,0 +1,190 @@
+{
+  "version": "1.0",
+  "_notes": "Single source of truth for the MakanWell risk questionnaire. Frontend renders questions/options from here; src/lib/scoring.js consumes the same point weights. Condition keys (hypertension/hyperlipidaemia/diabetes) match the food DB and FoodDish type. Each option's `points` adds to that condition's raw score. Multi-selects sum the points of every ticked option.",
+  "maxScores": { "hypertension": 40, "hyperlipidaemia": 31, "diabetes": 46 },
+  "tiers": [
+    { "tier": "Low", "min": 0, "max": 30 },
+    { "tier": "Moderate", "min": 30, "max": 60 },
+    { "tier": "High", "min": 60, "max": 101 }
+  ],
+  "tieThreshold": 5,
+  "questions": [
+    {
+      "n": 1, "id": "age", "type": "single", "scored": true,
+      "prompt": "Which age group are you in?",
+      "options": [
+        { "value": "18-30", "label": "18–30", "points": { "hypertension": 0, "hyperlipidaemia": 0, "diabetes": 0 } },
+        { "value": "31-45", "label": "31–45", "points": { "hypertension": 1, "hyperlipidaemia": 1, "diabetes": 1 } },
+        { "value": "46-60", "label": "46–60", "points": { "hypertension": 2, "hyperlipidaemia": 2, "diabetes": 2 } },
+        { "value": "60+", "label": "60+", "points": { "hypertension": 3, "hyperlipidaemia": 2, "diabetes": 3 } }
+      ]
+    },
+    {
+      "n": 2, "id": "gender", "type": "gender", "scored": false,
+      "prompt": "What is your gender?",
+      "note": "Not scored directly — selects which waist thresholds apply in Q5.",
+      "options": [
+        { "value": "male", "label": "Male" },
+        { "value": "female", "label": "Female" }
+      ]
+    },
+    {
+      "n": 3, "id": "ethnicity", "type": "single", "scored": true,
+      "prompt": "What is your ethnicity?",
+      "options": [
+        { "value": "Chinese", "label": "Chinese", "points": { "hypertension": 0, "hyperlipidaemia": 0, "diabetes": 1 } },
+        { "value": "Malay", "label": "Malay", "points": { "hypertension": 1, "hyperlipidaemia": 1, "diabetes": 2 } },
+        { "value": "Indian", "label": "Indian", "points": { "hypertension": 1, "hyperlipidaemia": 2, "diabetes": 3 } },
+        { "value": "Others", "label": "Others", "points": { "hypertension": 0, "hyperlipidaemia": 0, "diabetes": 0 } }
+      ]
+    },
+    {
+      "n": 4, "id": "bmi", "type": "bmi", "scored": true,
+      "prompt": "Your height and weight",
+      "inputs": { "height": "heightCm", "weight": "weightKg" },
+      "note": "BMI = weightKg / (heightM^2). Asian (WHO Asia-Pacific 2000) cutoffs.",
+      "bands": [
+        { "label": "Healthy", "max": 23.0, "points": { "hypertension": 0, "hyperlipidaemia": 0, "diabetes": 0 } },
+        { "label": "Overweight", "min": 23.0, "max": 27.5, "points": { "hypertension": 1, "hyperlipidaemia": 1, "diabetes": 1 } },
+        { "label": "Obese I", "min": 27.5, "max": 32.5, "points": { "hypertension": 2, "hyperlipidaemia": 2, "diabetes": 2 } },
+        { "label": "Obese II", "min": 32.5, "points": { "hypertension": 3, "hyperlipidaemia": 3, "diabetes": 3 } }
+      ]
+    },
+    {
+      "n": 5, "id": "waist", "type": "waist", "scored": true,
+      "prompt": "Your waist circumference (cm)",
+      "input": "waistCm",
+      "note": "Thresholds depend on Q2 gender. Strongest single predictor of metabolic syndrome.",
+      "thresholds": {
+        "male": [
+          { "label": "< 90cm", "max": 90, "points": { "hypertension": 0, "hyperlipidaemia": 0, "diabetes": 0 } },
+          { "label": "90–100cm", "min": 90, "max": 100.0001, "points": { "hypertension": 2, "hyperlipidaemia": 2, "diabetes": 2 } },
+          { "label": "> 100cm", "min": 100.0001, "points": { "hypertension": 4, "hyperlipidaemia": 4, "diabetes": 4 } }
+        ],
+        "female": [
+          { "label": "< 80cm", "max": 80, "points": { "hypertension": 0, "hyperlipidaemia": 0, "diabetes": 0 } },
+          { "label": "80–90cm", "min": 80, "max": 90.0001, "points": { "hypertension": 2, "hyperlipidaemia": 2, "diabetes": 2 } },
+          { "label": "> 90cm", "min": 90.0001, "points": { "hypertension": 4, "hyperlipidaemia": 4, "diabetes": 4 } }
+        ]
+      }
+    },
+    {
+      "n": 6, "id": "familyHistory", "type": "multi", "scored": true,
+      "prompt": "Family history of any of these? (tick all that apply)",
+      "note": "Each condition scores independently (+5).",
+      "options": [
+        { "value": "hypertension", "label": "Hypertension", "points": { "hypertension": 5, "hyperlipidaemia": 0, "diabetes": 0 } },
+        { "value": "hyperlipidaemia", "label": "Hyperlipidaemia (high cholesterol)", "points": { "hypertension": 0, "hyperlipidaemia": 5, "diabetes": 0 } },
+        { "value": "diabetes", "label": "Diabetes", "points": { "hypertension": 0, "hyperlipidaemia": 0, "diabetes": 5 } },
+        { "value": "none", "label": "None of the above", "points": { "hypertension": 0, "hyperlipidaemia": 0, "diabetes": 0 } }
+      ]
+    },
+    {
+      "n": 7, "id": "activityLevel", "type": "single", "scored": true,
+      "prompt": "How physically active are you?",
+      "options": [
+        { "value": "vigorous", "label": "Daily vigorous (>30 min)", "points": { "hypertension": 0, "hyperlipidaemia": 0, "diabetes": 0 } },
+        { "value": "moderate", "label": "Moderate 3–5x per week", "points": { "hypertension": 1, "hyperlipidaemia": 1, "diabetes": 1 } },
+        { "value": "light", "label": "Light 1–2x per week", "points": { "hypertension": 2, "hyperlipidaemia": 2, "diabetes": 2 } },
+        { "value": "sedentary", "label": "Mostly sedentary", "points": { "hypertension": 3, "hyperlipidaemia": 3, "diabetes": 3 } }
+      ]
+    },
+    {
+      "n": 8, "id": "friedFoodFreq", "type": "single", "scored": true,
+      "prompt": "How often do you eat fried food?",
+      "options": [
+        { "value": "rarely", "label": "Rarely (< once a week)", "points": { "hypertension": 0, "hyperlipidaemia": 0, "diabetes": 0 } },
+        { "value": "1-2x", "label": "1–2x per week", "points": { "hypertension": 0, "hyperlipidaemia": 2, "diabetes": 1 } },
+        { "value": "3-5x", "label": "3–5x per week", "points": { "hypertension": 1, "hyperlipidaemia": 4, "diabetes": 2 } },
+        { "value": "daily", "label": "Daily", "points": { "hypertension": 1, "hyperlipidaemia": 6, "diabetes": 2 } }
+      ]
+    },
+    {
+      "n": 9, "id": "sugaryDrinksPerDay", "type": "single", "scored": true,
+      "prompt": "How many sugary drinks per day?",
+      "examples": "Teh tarik, Milo, kopi with sugar, fizzy drinks, fruit juice",
+      "options": [
+        { "value": "none", "label": "None", "points": { "hypertension": 0, "hyperlipidaemia": 0, "diabetes": 0 } },
+        { "value": "1", "label": "1 per day", "points": { "hypertension": 0, "hyperlipidaemia": 0, "diabetes": 2 } },
+        { "value": "2-3", "label": "2–3 per day", "points": { "hypertension": 1, "hyperlipidaemia": 1, "diabetes": 4 } },
+        { "value": "4+", "label": "4+ per day", "points": { "hypertension": 1, "hyperlipidaemia": 1, "diabetes": 6 } }
+      ]
+    },
+    {
+      "n": 10, "id": "extraSalt", "type": "single", "scored": true,
+      "prompt": "Do you add extra salt or sauces at meals?",
+      "examples": "Soy sauce, fish sauce, chilli sauce, extra gravy",
+      "options": [
+        { "value": "never", "label": "Never", "points": { "hypertension": 0, "hyperlipidaemia": 0, "diabetes": 0 } },
+        { "value": "sometimes", "label": "Sometimes", "points": { "hypertension": 1, "hyperlipidaemia": 0, "diabetes": 0 } },
+        { "value": "most", "label": "Most meals", "points": { "hypertension": 3, "hyperlipidaemia": 0, "diabetes": 0 } },
+        { "value": "always", "label": "Always", "points": { "hypertension": 5, "hyperlipidaemia": 0, "diabetes": 0 } }
+      ]
+    },
+    {
+      "n": 11, "id": "smokingStatus", "type": "single", "scored": true,
+      "prompt": "Smoking status",
+      "options": [
+        { "value": "never", "label": "Never smoked", "points": { "hypertension": 0, "hyperlipidaemia": 0, "diabetes": 0 } },
+        { "value": "ex", "label": "Ex-smoker", "points": { "hypertension": 1, "hyperlipidaemia": 1, "diabetes": 1 } },
+        { "value": "current", "label": "Current smoker", "points": { "hypertension": 3, "hyperlipidaemia": 3, "diabetes": 2 } }
+      ]
+    },
+    {
+      "n": 12, "id": "sleepQuality", "type": "single", "scored": true,
+      "prompt": "How is your sleep?",
+      "options": [
+        { "value": "good", "label": "Good (7–8 hrs, wake refreshed)", "points": { "hypertension": 0, "hyperlipidaemia": 0, "diabetes": 0 } },
+        { "value": "fair", "label": "Fair (5–6 hrs, sometimes tired)", "points": { "hypertension": 1, "hyperlipidaemia": 0, "diabetes": 2 } },
+        { "value": "poor", "label": "Poor (< 5 hrs or frequent waking)", "points": { "hypertension": 2, "hyperlipidaemia": 0, "diabetes": 4 } }
+      ]
+    },
+    {
+      "n": 13, "id": "stressLevel", "type": "single", "scored": true,
+      "prompt": "Your stress level over the past month",
+      "options": [
+        { "value": "low", "label": "Low", "points": { "hypertension": 0, "hyperlipidaemia": 0, "diabetes": 0 } },
+        { "value": "moderate", "label": "Moderate", "points": { "hypertension": 1, "hyperlipidaemia": 0, "diabetes": 1 } },
+        { "value": "high", "label": "High", "points": { "hypertension": 3, "hyperlipidaemia": 0, "diabetes": 2 } },
+        { "value": "very-high", "label": "Very high", "points": { "hypertension": 5, "hyperlipidaemia": 0, "diabetes": 3 } }
+      ]
+    },
+    {
+      "n": 14, "id": "symptoms", "type": "multi", "scored": true,
+      "prompt": "Any of these symptoms? (tick all that apply)",
+      "note": "Red-flag signals, not diagnostic — they boost the condition they indicate.",
+      "options": [
+        { "value": "headaches", "label": "Frequent headaches or neck tension", "points": { "hypertension": 3, "hyperlipidaemia": 0, "diabetes": 0 } },
+        { "value": "fatigue", "label": "Easily tired or low energy", "points": { "hypertension": 1, "hyperlipidaemia": 2, "diabetes": 2 } },
+        { "value": "thirst", "label": "Excessive thirst", "points": { "hypertension": 0, "hyperlipidaemia": 0, "diabetes": 3 } },
+        { "value": "urination", "label": "Frequent urination (especially at night)", "points": { "hypertension": 0, "hyperlipidaemia": 0, "diabetes": 3 } },
+        { "value": "none", "label": "None of the above", "points": { "hypertension": 0, "hyperlipidaemia": 0, "diabetes": 0 } }
+      ]
+    },
+    {
+      "n": 15, "id": "hawkerFrequency", "type": "single", "scored": false,
+      "prompt": "How often do you eat hawker food?",
+      "note": "Context only — personalises food tips, not scored.",
+      "options": [
+        { "value": "daily-2x", "label": "Daily 2x or more" },
+        { "value": "daily-1x", "label": "Once a day" },
+        { "value": "few-times", "label": "A few times a week" },
+        { "value": "rarely", "label": "Rarely" }
+      ]
+    },
+    {
+      "n": 16, "id": "favCategories", "type": "multi", "scored": false,
+      "prompt": "Your usual go-to hawker meals (pick up to 3)",
+      "note": "Personalises the food dashboard default view, not scored.",
+      "maxSelect": 3,
+      "options": [
+        { "value": "Rice", "label": "Rice dishes" },
+        { "value": "Noodles", "label": "Noodle dishes" },
+        { "value": "Fried", "label": "Fried dishes" },
+        { "value": "Soups", "label": "Soups" },
+        { "value": "Bread", "label": "Bread & Roti" },
+        { "value": "Desserts", "label": "Desserts & Drinks" }
+      ]
+    }
+  ]
+}

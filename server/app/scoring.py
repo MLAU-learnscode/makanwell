@@ -3,7 +3,7 @@
 import json
 from pathlib import Path
 
-QUESTIONNAIRE_PATH = Path(__file__).resolve().parents[2] / "src" / "data" / "questionnaire.json"
+QUESTIONNAIRE_PATH = Path(__file__).resolve().parent.parent / "data" / "questionnaire.json"
 
 CONDITIONS = ["hypertension", "hyperlipidaemia", "diabetes"]
 
