@@ -86,15 +86,20 @@ export async function transcribeAudio(blob) {
     for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i])
     const audio = btoa(binary)
 
+    const mimeType = blob.type || 'audio/webm'
     const res = await fetch('/api/voice/transcribe', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ audio, mimeType: blob.type || 'audio/webm' }),
+      body: JSON.stringify({ audio, mimeType }),
     })
     const data = await res.json()
-    if (!res.ok) return ''
+    if (!res.ok) {
+      console.warn('[voice] transcribe failed:', data.error || res.status)
+      return ''
+    }
     return (data.transcript || '').trim()
-  } catch {
+  } catch (err) {
+    console.warn('[voice] transcribe error:', err.message)
     return ''
   }
 }

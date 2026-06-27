@@ -4,19 +4,22 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "concurrently -k \"node server/dev-api.mjs\" \"vite\"",
+    "dev": "concurrently -k \"node server/dev-api.mjs\" \"node server/realtime-relay-index.mjs\" \"vite\"",
     "dev:web": "vite",
     "dev:api": "node server/dev-api.mjs",
+    "dev:relay": "node server/realtime-relay-index.mjs",
     "build": "vite build",
     "preview": "vite preview"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.71.0",
+    "@openai/realtime-api-beta": "github:openai/openai-realtime-api-beta",
     "lucide-react": "^0.487.0",
     "motion": "^12.23.24",
     "openai": "^4.104.0",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react-dom": "^18.3.1",
+    "ws": "^8.21.0"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.3.4",

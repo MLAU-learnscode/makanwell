@@ -16,6 +16,11 @@ export const CONVERSATION_STATE = {
   ERROR: 'error',
 }
 
+/** Fixed low threshold — mic bar at 30%+ always counts as speech */
+const SPEECH_THRESHOLD = 8
+const SPEECH_END_SILENCE_MS = 1500
+const MIN_SPEECH_MS = 200
+
 function pickRecordingMimeType() {
   const types = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/aac']
   for (const type of types) {
@@ -29,9 +34,11 @@ function pickRecordingMimeType() {
  * and barge-in (user speech stops the assistant mid-sentence).
  */
 export class ConversationCallSession {
-  constructor({ onStateChange, onCaption } = {}) {
+  constructor({ onStateChange, onCaption, onMicLevel, onListenMetrics } = {}) {
     this.onStateChange = onStateChange
     this.onCaption = onCaption
+    this.onMicLevel = onMicLevel
+    this.onListenMetrics = onListenMetrics
     this.state = CONVERSATION_STATE.IDLE
     this.aborted = false
     this.stream = null
@@ -43,6 +50,9 @@ export class ConversationCallSession {
     this.recordingChunks = []
     this.activeSpeech = null
     this.userAlreadySpeaking = false
+    this.timeDomainBuffer = null
+    this.listenPeak = 0
+    this.listenHadSpeech = false
   }
 
   setState(next) {
@@ -69,24 +79,49 @@ export class ConversationCallSession {
       },
     })
 
+    const track = this.stream.getAudioTracks()[0]
+    if (!track) throw new Error('No microphone track available.')
+    track.enabled = true
+
     const Ctx = window.AudioContext || window.webkitAudioContext
     this.audioContext = new Ctx()
-    if (this.audioContext.state === 'suspended') await this.audioContext.resume()
+    await this.ensureAudioReady()
 
     const source = this.audioContext.createMediaStreamSource(this.stream)
     this.analyser = this.audioContext.createAnalyser()
-    this.analyser.fftSize = 512
-    this.analyser.smoothingTimeConstant = 0.4
+    this.analyser.fftSize = 2048
+    this.analyser.smoothingTimeConstant = 0.2
     source.connect(this.analyser)
+    this.timeDomainBuffer = new Uint8Array(this.analyser.fftSize)
   }
 
+  async ensureAudioReady() {
+    if (!this.audioContext) return
+    if (this.audioContext.state === 'suspended') {
+      await this.audioContext.resume()
+    }
+  }
+
+  /** RMS loudness 0–100 from microphone time-domain samples */
   getVolume() {
-    if (!this.analyser) return 0
-    const data = new Uint8Array(this.analyser.frequencyBinCount)
-    this.analyser.getByteFrequencyData(data)
+    if (!this.analyser || !this.timeDomainBuffer) return 0
+    this.analyser.getByteTimeDomainData(this.timeDomainBuffer)
     let sum = 0
-    for (let i = 0; i < data.length; i++) sum += data[i]
-    return sum / data.length
+    for (let i = 0; i < this.timeDomainBuffer.length; i++) {
+      const sample = (this.timeDomainBuffer[i] - 128) / 128
+      sum += sample * sample
+    }
+    const rms = Math.sqrt(sum / this.timeDomainBuffer.length)
+    const level = Math.min(100, Math.round(rms * 400))
+    this.onMicLevel?.(level)
+    return level
+  }
+
+  emitListenMetrics() {
+    this.onListenMetrics?.({
+      peak: this.listenPeak,
+      heardSpeech: this.listenHadSpeech,
+    })
   }
 
   stopVadLoop() {
@@ -139,16 +174,16 @@ export class ConversationCallSession {
   async speak(text) {
     if (this.aborted) return { bargedIn: false }
 
+    await this.ensureAudioReady()
     this.setState(CONVERSATION_STATE.ASSISTANT_SPEAKING)
     this.onCaption?.(text)
-    this.userAlreadySpeaking = false
 
     const speech = createCancellableSpeech(text)
     this.activeSpeech = speech
 
     const bargeIn = this.waitForVolume({
-      threshold: 32,
-      holdMs: 300,
+      threshold: SPEECH_THRESHOLD,
+      holdMs: 200,
     })
 
     const result = await Promise.race([
@@ -164,10 +199,14 @@ export class ConversationCallSession {
     }
 
     this.activeSpeech = null
+    await new Promise((r) => setTimeout(r, 400))
     return result
   }
 
   startRecorder() {
+    if (!this.stream?.active) {
+      throw new Error('Microphone stream is not active.')
+    }
     this.recordingChunks = []
     const mime = pickRecordingMimeType()
     this.recordingMime = mime || 'audio/webm'
@@ -177,7 +216,7 @@ export class ConversationCallSession {
     this.mediaRecorder.ondataavailable = (e) => {
       if (e.data.size > 0) this.recordingChunks.push(e.data)
     }
-    this.mediaRecorder.start(200)
+    this.mediaRecorder.start(100)
   }
 
   stopRecorder() {
@@ -195,34 +234,41 @@ export class ConversationCallSession {
         this.recordingChunks = []
         resolve(blob)
       }
-      this.mediaRecorder.stop()
+      if (this.mediaRecorder.state === 'recording') {
+        try {
+          this.mediaRecorder.requestData()
+        } catch {
+          /* optional */
+        }
+        this.mediaRecorder.stop()
+      } else {
+        this.mediaRecorder = null
+        resolve(null)
+      }
     })
   }
 
   async recordUntilSilence({
-    speechThreshold = 16,
-    silenceMs = 1300,
-    minSpeechMs = 300,
-    maxMs = 45000,
+    silenceMs = SPEECH_END_SILENCE_MS,
+    minSpeechMs = MIN_SPEECH_MS,
+    maxMs = 30000,
+    waitForSpeechMs = 12000,
   } = {}) {
     if (this.aborted) return null
 
+    await this.ensureAudioReady()
     this.setState(CONVERSATION_STATE.LISTENING)
 
-    if (!this.userAlreadySpeaking) {
-      const heard = await this.waitForVolume({
-        threshold: speechThreshold,
-        holdMs: 220,
-        timeoutMs: 22000,
-      })
-      if (!heard || this.aborted) return null
-    }
+    this.listenPeak = 0
+    this.listenHadSpeech = this.userAlreadySpeaking
+    this.emitListenMetrics()
 
+    // Start capturing immediately — never wait for VAD before recording
     this.startRecorder()
+
     const recordStart = Date.now()
-    let speechStart = Date.now()
-    let lastLoud = Date.now()
-    let hadSpeech = this.userAlreadySpeaking
+    let lastLoud = this.userAlreadySpeaking ? recordStart : null
+    let speechStart = this.userAlreadySpeaking ? recordStart : null
 
     return new Promise((resolve) => {
       const tick = () => {
@@ -234,27 +280,33 @@ export class ConversationCallSession {
         const vol = this.getVolume()
         const now = Date.now()
 
-        if (vol > speechThreshold) {
+        this.listenPeak = Math.max(this.listenPeak, vol)
+        if (vol > SPEECH_THRESHOLD) {
+          this.listenHadSpeech = true
           lastLoud = now
-          if (!hadSpeech) {
-            hadSpeech = true
-            speechStart = now
-          }
+          if (!speechStart) speechStart = now
+          this.emitListenMetrics()
         }
 
         const elapsed = now - recordStart
-        const silentFor = now - lastLoud
-        const speechDuration = hadSpeech ? now - speechStart : 0
+        const silentFor = lastLoud ? now - lastLoud : 0
+        const speechDuration = speechStart ? now - speechStart : 0
 
-        const done =
-          hadSpeech &&
+        const heardSomething = this.listenHadSpeech || this.listenPeak >= SPEECH_THRESHOLD
+
+        const endOfTurn =
+          heardSomething &&
+          lastLoud &&
           speechDuration >= minSpeechMs &&
           silentFor >= silenceMs
 
-        if (done || elapsed >= maxMs) {
+        const timedOut = elapsed >= maxMs
+        const noSpeechYet = !heardSomething && elapsed >= waitForSpeechMs
+
+        if (endOfTurn || timedOut || noSpeechYet) {
           this.stopVadLoop()
           void this.stopRecorder().then((blob) => {
-            if (!blob || !hadSpeech || speechDuration < minSpeechMs) {
+            if (!blob || blob.size < 80) {
               resolve(null)
               return
             }
@@ -279,10 +331,18 @@ export class ConversationCallSession {
 
     this.setState(CONVERSATION_STATE.PROCESSING)
     const transcript = await transcribeAudio(blob)
+
+    // If mic clearly picked up speech but Whisper returned nothing, listen once more
+    if (!transcript && this.listenPeak >= SPEECH_THRESHOLD) {
+      await this.speak('Sorry, I missed that. Could you say it once more?')
+      if (this.aborted) return null
+      const retryBlob = await this.recordUntilSilence({ waitForSpeechMs: 15000 })
+      if (retryBlob) return transcribeAudio(retryBlob)
+    }
+
     return transcript || null
   }
 
-  /** Speak, then automatically listen. Barge-in skips straight to listening. */
   async speakThenListen(text) {
     const { bargedIn } = await this.speak(text)
     if (this.aborted) return null

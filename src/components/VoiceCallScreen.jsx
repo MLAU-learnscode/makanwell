@@ -1,69 +1,107 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Leaf, PhoneOff, Phone } from 'lucide-react'
+import { RealtimeClient } from '@openai/realtime-api-beta'
+import { WavRecorder, WavStreamPlayer } from '../lib/wavtools/index.js'
 import {
-  VOICE_QUESTIONS,
-  INTRO,
-  OUTRO,
-  buildSpokenQuestion,
-  buildRetryPrompt,
-  buildAckPrompt,
-  parseVoiceAnswer,
-  applyParsedAnswer,
-  labelForAnswer,
   formatCallDuration,
   getVoiceCallBlocker,
   unlockAudioOnUserGesture,
 } from '../lib/voiceApi.js'
 import {
-  ConversationCallSession,
-  CONVERSATION_STATE,
-  wantsToEndCall,
-} from '../lib/conversationCall.js'
+  REALTIME_RELAY_URL,
+  REALTIME_MODEL,
+  buildRealtimeInstructions,
+  SAVE_ANSWER_TOOL,
+  COMPLETE_ASSESSMENT_TOOL,
+  applySaveAnswer,
+  countSavedQuestions,
+  allQuestionsAnswered,
+  REALTIME_QUESTIONS,
+} from '../lib/realtimeQuestionnaire.js'
+import {
+  REALTIME_TURN_DETECTION,
+  forceEndUserTurn,
+  LocalSilenceWatchdog,
+} from '../lib/realtimeTurnHelper.js'
 
 const UI_PHASE = {
   incoming: 'incoming',
   blocked: 'blocked',
+  connecting: 'connecting',
   onCall: 'on_call',
   ended: 'ended',
   error: 'error',
 }
 
-function stateToStatus(state) {
+const CONV = {
+  idle: 'idle',
+  assistantSpeaking: 'assistant_speaking',
+  listening: 'listening',
+  processing: 'processing',
+}
+
+function statusForConv(state) {
   switch (state) {
-    case CONVERSATION_STATE.CONNECTING:
-      return 'Connecting…'
-    case CONVERSATION_STATE.ASSISTANT_SPEAKING:
+    case CONV.assistantSpeaking:
       return 'Assistant speaking — interrupt anytime'
-    case CONVERSATION_STATE.LISTENING:
+    case CONV.listening:
       return 'Listening…'
-    case CONVERSATION_STATE.PROCESSING:
+    case CONV.processing:
       return 'Processing…'
     default:
       return 'On call'
   }
 }
 
+function waitForFirstResponse(client, timeoutMs = 20000) {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      cleanup()
+      resolve(false)
+    }, timeoutMs)
+
+    const handler = ({ source, event }) => {
+      if (source !== 'server') return
+      if (event.type === 'response.done') {
+        cleanup()
+        resolve(true)
+      }
+      if (event.type === 'error') {
+        cleanup()
+        resolve(false)
+      }
+    }
+
+    const cleanup = () => {
+      clearTimeout(timer)
+      client.off('realtime.event', handler)
+    }
+
+    client.on('realtime.event', handler)
+  })
+}
+
 export default function VoiceCallScreen({ onComplete, onEnd }) {
   const initialBlocker = getVoiceCallBlocker()
   const [uiPhase, setUiPhase] = useState(initialBlocker ? UI_PHASE.blocked : UI_PHASE.incoming)
-  const [convState, setConvState] = useState(CONVERSATION_STATE.IDLE)
-  const [stepIndex, setStepIndex] = useState(0)
+  const [convState, setConvState] = useState(CONV.idle)
+  const [savedCount, setSavedCount] = useState(0)
   const [statusLine, setStatusLine] = useState(initialBlocker ? 'Unavailable' : 'Incoming call…')
   const [caption, setCaption] = useState('')
   const [errorMsg, setErrorMsg] = useState(initialBlocker || '')
   const [duration, setDuration] = useState(0)
   const [timerOn, setTimerOn] = useState(false)
+  const [micLevel, setMicLevel] = useState(0)
 
-  const sessionRef = useRef(null)
-  const userEndedRef = useRef(false)
+  const wavRecorderRef = useRef(null)
+  const wavStreamPlayerRef = useRef(null)
+  const clientRef = useRef(null)
   const answersRef = useRef({})
-  const stepRef = useRef(0)
-  const startedRef = useRef(false)
-  const loopRef = useRef(null)
-
-  useEffect(() => {
-    stepRef.current = stepIndex
-  }, [stepIndex])
+  const finishingRef = useRef(false)
+  const finishCallRef = useRef(null)
+  /** Mic streams to API only after the AI greeting — prevents VAD cancelling the first reply */
+  const micLiveRef = useRef(false)
+  const silenceWatchdogRef = useRef(null)
 
   useEffect(() => {
     if (!timerOn) return undefined
@@ -71,110 +109,232 @@ export default function VoiceCallScreen({ onComplete, onEnd }) {
     return () => clearInterval(t)
   }, [timerOn])
 
-  const ended = useCallback(() => userEndedRef.current, [])
-
-  const runConversationLoop = useCallback(async () => {
-    const session = sessionRef.current
-    if (!session || ended()) return
-
-    let index = stepRef.current
-    let currentAnswers = { ...answersRef.current }
-
-    while (index < VOICE_QUESTIONS.length && !ended()) {
-      const q = VOICE_QUESTIONS[index]
-      setStepIndex(index)
-
-      const spoken = buildSpokenQuestion(q, currentAnswers)
-      let transcript = await session.speakThenListen(spoken)
-      if (ended()) return
-
-      while (!ended()) {
-        if (!transcript) {
-          transcript = await session.speakThenListen(
-            buildRetryPrompt('I did not hear you. Please say that again.'),
-          )
-          if (ended()) return
-          continue
-        }
-
-        if (wantsToEndCall(transcript)) {
-          userEndedRef.current = true
-          session.destroy()
-          onEnd()
-          return
-        }
-
-        const parsed = await parseVoiceAnswer(q, transcript, currentAnswers)
-        if (!parsed.success) {
-          transcript = await session.speakThenListen(buildRetryPrompt(parsed.error))
-          if (ended()) return
-          continue
-        }
-
-        const label = labelForAnswer(q, parsed)
-        currentAnswers = applyParsedAnswer(q, parsed, currentAnswers)
-        answersRef.current = currentAnswers
-
-        await session.speak(buildAckPrompt(label))
-        if (ended()) return
-
-        index += 1
-        stepRef.current = index
-        break
-      }
+  const disconnect = useCallback(async () => {
+    micLiveRef.current = false
+    if (silenceWatchdogRef.current) silenceWatchdogRef.current.enabled = false
+    const client = clientRef.current
+    const wavRecorder = wavRecorderRef.current
+    const wavStreamPlayer = wavStreamPlayerRef.current
+    try {
+      client?.disconnect()
+    } catch {
+      /* ignore */
     }
+    try {
+      await wavRecorder?.end()
+    } catch {
+      /* ignore */
+    }
+    try {
+      await wavStreamPlayer?.interrupt()
+    } catch {
+      /* ignore */
+    }
+  }, [])
 
-    if (ended()) return
-
-    setStatusLine('Finishing call…')
-    await session.speak(OUTRO)
+  const finishCall = useCallback(async () => {
+    if (finishingRef.current) return
+    finishingRef.current = true
+    await disconnect()
     setUiPhase(UI_PHASE.ended)
     setStatusLine('Call ended')
-    onComplete(currentAnswers)
-  }, [ended, onComplete, onEnd])
+    onComplete({ ...answersRef.current })
+  }, [disconnect, onComplete])
+
+  useEffect(() => {
+    finishCallRef.current = finishCall
+  }, [finishCall])
+
+  useEffect(() => {
+    wavRecorderRef.current = new WavRecorder({ sampleRate: 24000 })
+    wavStreamPlayerRef.current = new WavStreamPlayer({ sampleRate: 24000 })
+    clientRef.current = new RealtimeClient({ url: REALTIME_RELAY_URL })
+
+    const client = clientRef.current
+    const wavStreamPlayer = wavStreamPlayerRef.current
+
+    client.sessionConfig.model = REALTIME_MODEL
+    client.updateSession({
+      instructions: buildRealtimeInstructions(),
+      voice: 'shimmer',
+      modalities: ['text', 'audio'],
+      input_audio_format: 'pcm16',
+      output_audio_format: 'pcm16',
+      input_audio_transcription: { model: 'whisper-1' },
+      turn_detection: REALTIME_TURN_DETECTION,
+    })
+
+    silenceWatchdogRef.current = new LocalSilenceWatchdog({
+      onSpeechStart: () => {
+        if (!micLiveRef.current) return
+        setConvState(CONV.listening)
+        setStatusLine(statusForConv(CONV.listening))
+      },
+      onEndTurn: () => {
+        if (!micLiveRef.current) return
+        if (forceEndUserTurn(client)) {
+          setConvState(CONV.processing)
+          setStatusLine('Processing…')
+        }
+      },
+    })
+
+    client.addTool(SAVE_ANSWER_TOOL, async (payload) => {
+      const result = applySaveAnswer(answersRef.current, payload)
+      if (!result.ok) return { success: false, error: result.error }
+      answersRef.current = result.answers
+      const saved = countSavedQuestions(result.answers)
+      setSavedCount(saved)
+      if (allQuestionsAnswered(result.answers)) {
+        setTimeout(() => finishCallRef.current?.(), 2500)
+      }
+      return { success: true, saved, total: REALTIME_QUESTIONS.length }
+    })
+
+    client.addTool(COMPLETE_ASSESSMENT_TOOL, async () => {
+      setTimeout(() => finishCallRef.current?.(), 2000)
+      return { success: true }
+    })
+
+    client.on('conversation.interrupted', async () => {
+      if (!micLiveRef.current) return
+      const trackSampleOffset = await wavStreamPlayer.interrupt()
+      if (trackSampleOffset?.trackId) {
+        await client.cancelResponse(trackSampleOffset.trackId, trackSampleOffset.offset)
+      }
+    })
+
+    client.on('conversation.updated', ({ item, delta }) => {
+      if (item.role === 'assistant') {
+        const text = item.formatted?.transcript || item.formatted?.text
+        if (text) setCaption(text)
+      }
+      if (delta?.audio) {
+        wavStreamPlayer.add16BitPCM(delta.audio, item.id)
+        setConvState(CONV.assistantSpeaking)
+        setStatusLine(statusForConv(CONV.assistantSpeaking))
+      }
+    })
+
+    client.on('realtime.event', ({ source, event }) => {
+      if (source !== 'server') return
+      if (event.type === 'input_audio_buffer.speech_started' && micLiveRef.current) {
+        setConvState(CONV.listening)
+        setStatusLine(statusForConv(CONV.listening))
+      }
+      if (event.type === 'input_audio_buffer.speech_stopped' && micLiveRef.current) {
+        silenceWatchdogRef.current?.onServerSpeechStopped()
+        setConvState(CONV.processing)
+        setStatusLine(statusForConv(CONV.processing))
+      }
+      if (event.type === 'response.created') {
+        silenceWatchdogRef.current?.reset()
+        setConvState(CONV.assistantSpeaking)
+        setStatusLine(statusForConv(CONV.assistantSpeaking))
+      }
+    })
+
+    client.on('error', (event) => {
+      console.error('[realtime]', event)
+      setErrorMsg(event?.message || 'Voice connection error')
+      setUiPhase(UI_PHASE.error)
+    })
+
+    return () => {
+      client.reset()
+    }
+  }, [])
+
+  useEffect(() => {
+    if (uiPhase !== UI_PHASE.onCall) return undefined
+    let raf
+    const tick = () => {
+      const wr = wavRecorderRef.current
+      if (wr?.recording) {
+        const { values } = wr.getFrequencies('voice')
+        let sum = 0
+        for (let i = 0; i < values.length; i++) sum += values[i]
+        const avg = values.length ? sum / values.length : 0
+        setMicLevel(Math.min(100, Math.round(avg * 120)))
+        if (micLiveRef.current) {
+          silenceWatchdogRef.current?.tick(Math.min(100, Math.round(avg * 120)))
+        }
+      }
+      raf = requestAnimationFrame(tick)
+    }
+    raf = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(raf)
+  }, [uiPhase])
+
+  const startMicStreaming = useCallback(async () => {
+    const client = clientRef.current
+    const wavRecorder = wavRecorderRef.current
+    if (!client || !wavRecorder || micLiveRef.current) return
+
+    micLiveRef.current = true
+    silenceWatchdogRef.current?.reset()
+    silenceWatchdogRef.current?.beginCalibration()
+    silenceWatchdogRef.current.enabled = true
+    await wavRecorder.record((data) => {
+      if (micLiveRef.current) client.appendInputAudio(data.mono)
+    })
+  }, [])
 
   const startCall = useCallback(async () => {
-    if (startedRef.current || ended()) return
-    startedRef.current = true
-
-    const session = new ConversationCallSession({
-      onStateChange: (state) => {
-        setConvState(state)
-        setStatusLine(stateToStatus(state))
-      },
-      onCaption: setCaption,
-    })
-    sessionRef.current = session
+    const client = clientRef.current
+    const wavRecorder = wavRecorderRef.current
+    const wavStreamPlayer = wavStreamPlayerRef.current
+    if (!client || !wavRecorder || !wavStreamPlayer) return
 
     try {
-      setUiPhase(UI_PHASE.onCall)
-      setConvState(CONVERSATION_STATE.CONNECTING)
+      setUiPhase(UI_PHASE.connecting)
       setStatusLine('Connecting…')
       setTimerOn(true)
+      answersRef.current = {}
+      setSavedCount(0)
+      finishingRef.current = false
+      micLiveRef.current = false
 
-      await session.init()
-      if (ended()) return
+      unlockAudioOnUserGesture()
+      await wavRecorder.begin()
+      await wavStreamPlayer.connect()
+      await client.connect()
 
-      await session.speak(INTRO)
-      if (ended()) return
+      setUiPhase(UI_PHASE.onCall)
+      setConvState(CONV.assistantSpeaking)
+      setStatusLine('Assistant speaking…')
 
-      loopRef.current = runConversationLoop()
-      await loopRef.current
+      client.sendUserMessageContent([
+        {
+          type: 'input_text',
+          text:
+            'The caller just picked up. Greet them warmly as HawkerHealth, say this is a quick health check by phone, then ask question 1.',
+        },
+      ])
+
+      await waitForFirstResponse(client)
+      await startMicStreaming()
+
+      setConvState(CONV.listening)
+      setStatusLine(statusForConv(CONV.listening))
     } catch (err) {
-      if (ended()) return
+      console.error('[voice call]', err)
       setUiPhase(UI_PHASE.error)
-      setConvState(CONVERSATION_STATE.ERROR)
-      setErrorMsg(err.message || 'Could not start call')
+      setErrorMsg(
+        err.message?.includes('WebSocket') || err.message?.includes('connect')
+          ? 'Cannot reach voice relay. Run: npm run dev (starts API + relay + web)'
+          : err.message || 'Could not start call',
+      )
       setStatusLine('Error')
-      startedRef.current = false
+      await disconnect()
     }
-  }, [runConversationLoop, ended])
+  }, [disconnect, startMicStreaming])
 
   useEffect(
     () => () => {
-      sessionRef.current?.destroy()
+      void disconnect()
     },
-    [],
+    [disconnect],
   )
 
   function handleAnswerCall() {
@@ -183,36 +343,34 @@ export default function VoiceCallScreen({ onComplete, onEnd }) {
   }
 
   function handleDeclineCall() {
-    userEndedRef.current = true
-    sessionRef.current?.destroy()
+    void disconnect()
     onEnd()
   }
 
   function handleEndCall() {
-    userEndedRef.current = true
-    sessionRef.current?.destroy()
+    finishingRef.current = true
+    void disconnect()
     onEnd()
   }
 
   function handleTryAgain() {
     unlockAudioOnUserGesture()
-    userEndedRef.current = false
-    startedRef.current = false
+    finishingRef.current = false
+    micLiveRef.current = false
     setErrorMsg('')
     void startCall()
   }
 
-  const q = VOICE_QUESTIONS[stepIndex]
-  const progress = q ? `Question ${q.n} of ${VOICE_QUESTIONS.length}` : 'Complete'
+  const progress = `Question ${Math.min(savedCount + 1, REALTIME_QUESTIONS.length)} of ${REALTIME_QUESTIONS.length}`
 
   const avatarRing =
     uiPhase === UI_PHASE.incoming
       ? 'animate-pulse ring-4 ring-white/30 ring-offset-4 ring-offset-slate-950'
-      : convState === CONVERSATION_STATE.LISTENING
+      : convState === CONV.listening
         ? 'ring-4 ring-green-400 ring-offset-4 ring-offset-slate-950 animate-pulse'
-        : convState === CONVERSATION_STATE.ASSISTANT_SPEAKING
+        : convState === CONV.assistantSpeaking
           ? 'ring-4 ring-teal-300/50 ring-offset-4 ring-offset-slate-950'
-          : convState === CONVERSATION_STATE.PROCESSING
+          : convState === CONV.processing
             ? 'ring-4 ring-white/20 ring-offset-4 ring-offset-slate-950'
             : ''
 
@@ -239,12 +397,27 @@ export default function VoiceCallScreen({ onComplete, onEnd }) {
           </p>
         )}
 
-        {uiPhase === UI_PHASE.onCall && convState === CONVERSATION_STATE.ASSISTANT_SPEAKING && (
+        {uiPhase === UI_PHASE.onCall && convState === CONV.assistantSpeaking && (
           <p className="text-teal-300 text-xs mt-3 font-medium">Speak anytime to interrupt</p>
         )}
 
-        {uiPhase === UI_PHASE.onCall && convState === CONVERSATION_STATE.LISTENING && (
-          <p className="text-green-300 text-xs mt-3 font-medium">Go ahead — I am listening</p>
+        {uiPhase === UI_PHASE.onCall && convState === CONV.listening && (
+          <p className="text-green-300 text-xs mt-3 font-medium">
+            Speak clearly, then pause — background noise is ignored
+          </p>
+        )}
+
+        {uiPhase === UI_PHASE.onCall && (
+          <div className="mt-4 flex flex-col items-center">
+            <div className="w-48 h-1.5 bg-white/10 rounded-full overflow-hidden">
+              <div
+                className={`h-full rounded-full transition-all duration-75 ${
+                  convState === CONV.listening ? 'bg-green-400' : 'bg-teal-400'
+                }`}
+                style={{ width: `${Math.min(100, micLevel)}%` }}
+              />
+            </div>
+          </div>
         )}
 
         {uiPhase === UI_PHASE.error && (
@@ -283,7 +456,7 @@ export default function VoiceCallScreen({ onComplete, onEnd }) {
 
         {uiPhase === UI_PHASE.onCall && (
           <p className="text-xs text-white/50 text-center max-w-xs">
-            Just talk — no buttons needed. Say &ldquo;goodbye&rdquo; or tap red to end the call.
+            Just talk — no buttons needed. Say &ldquo;goodbye&rdquo; or tap red to end.
           </p>
         )}
 

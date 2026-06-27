@@ -15,7 +15,13 @@ export default async function handler(req, res) {
     }
 
     const buffer = Buffer.from(audio, 'base64')
-    const ext = mimeType.includes('mp4') ? 'mp4' : mimeType.includes('ogg') ? 'ogg' : 'webm'
+    const ext = mimeType.includes('mp4') || mimeType.includes('m4a')
+      ? 'm4a'
+      : mimeType.includes('ogg')
+        ? 'ogg'
+        : mimeType.includes('wav')
+          ? 'wav'
+          : 'webm'
     const file = await toFile(buffer, `recording.${ext}`, { type: mimeType })
 
     const openai = getOpenAI()
