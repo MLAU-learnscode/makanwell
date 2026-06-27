@@ -1,14 +1,29 @@
 """Food database search for the nutrition advisor agent."""
 
 import json
+import logging
 from pathlib import Path
 
-FOOD_DB_PATH = Path(__file__).resolve().parents[2] / "public" / "food_database.json"
+logger = logging.getLogger(__name__)
+
+FOOD_DB_PATH = Path(__file__).resolve().parent.parent / "data" / "food_database.json"
 
 RATING_PRIORITY = {"safe": 0, "modify": 1, "avoid": 2}
 
+logger.info("Loading food database from %s", FOOD_DB_PATH)
+if not FOOD_DB_PATH.exists():
+    raise FileNotFoundError(
+        f"food_database.json not found at {FOOD_DB_PATH}. "
+        "Ensure server/data/food_database.json is present in the build context."
+    )
+
 with open(FOOD_DB_PATH, encoding="utf-8") as f:
     DISHES = json.load(f)
+
+if not DISHES:
+    raise ValueError(f"food_database.json at {FOOD_DB_PATH} is empty or invalid.")
+
+logger.info("Loaded %d dishes from food database", len(DISHES))
 
 
 def worst_rating(dish, conditions):
