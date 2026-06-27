@@ -1,13 +1,40 @@
 import { useEffect, useState } from 'react'
-import { classify } from './lib/classify.js'
+import {
+  calculateRisk,
+  sortDishesForConditions,
+  getWorstRating,
+  CONDITION_LABEL,
+  TIER_DISPLAY,
+} from './lib/scoring.js'
 import { isVoiceSupported, listenOnce, speak } from './lib/voice.js'
 
-// Minimal scaffold shell. Proves the full stack works (food DB load, traffic
-// lights, /api/chat proxy, voice). The frontend teammate replaces this UI with
-// QuizStep / FoodCard / ChatBubble components.
+// Minimal scaffold shell. Proves the full stack works (risk scoring, food DB
+// load, traffic lights, /api/chat proxy, voice). The frontend teammate replaces
+// this UI with EntryScreen / Questionnaire / HealthProfile / FoodDashboard.
 
 const RATING_COLOR = { safe: 'text-safe', modify: 'text-modify', avoid: 'text-avoid' }
 const RATING_DOT = { safe: 'bg-safe', modify: 'bg-modify', avoid: 'bg-avoid' }
+
+// Demo answer set — in the real app this comes from the 16-question form.
+const DEMO_ANSWERS = {
+  age: '46-60',
+  gender: 'male',
+  ethnicity: 'Indian',
+  heightCm: 170,
+  weightKg: 85,
+  waistCm: 98,
+  familyHistory: ['diabetes', 'hypertension'],
+  activityLevel: 'sedentary',
+  friedFoodFreq: '3-5x',
+  sugaryDrinksPerDay: '2-3',
+  extraSalt: 'most',
+  smokingStatus: 'ex',
+  sleepQuality: 'fair',
+  stressLevel: 'high',
+  symptoms: ['thirst', 'fatigue'],
+  hawkerFrequency: 'daily-1x',
+  favCategories: ['Rice', 'Noodles'],
+}
 
 export default function App() {
   const [dishes, setDishes] = useState([])
@@ -16,8 +43,9 @@ export default function App() {
   const [reply, setReply] = useState('')
   const [busy, setBusy] = useState(false)
 
-  // Demo profile — in the real app this comes from the questionnaire + classify().
-  const profile = classify({ ageGroup: '46-60', conditions: ['Hypertension'], activity: 'Sedentary' })
+  const score = calculateRisk(DEMO_ANSWERS)
+  const primary = score.primaryConditions
+  const topTier = TIER_DISPLAY[score.tier[primary[0]]]
 
   useEffect(() => {
     fetch('/food_database.json')
@@ -26,11 +54,8 @@ export default function App() {
       .catch(() => setDishes([]))
   }, [])
 
-  const visible = dishes.filter((d) => {
-    if (filter === 'all') return true
-    // filter by the hypertension rating as a demo lens
-    return d.conditions?.hypertension?.rating === filter
-  })
+  const sorted = sortDishesForConditions(dishes, primary)
+  const visible = sorted.filter((d) => filter === 'all' || getWorstRating(d, primary) === filter)
 
   async function sendChat(text) {
     const message = (text ?? input).trim()
@@ -42,7 +67,7 @@ export default function App() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          profile: { tier: profile.key, conditions: ['Hypertension'] },
+          profile: { tier: score.tier[primary[0]], conditions: primary },
           messages: [{ role: 'user', content: message }],
         }),
       })
@@ -76,16 +101,40 @@ export default function App() {
       </header>
 
       <main className="max-w-2xl mx-auto p-6 space-y-8">
+        {/* Health profile (demo) */}
         <section>
-          <div
-            className="rounded-lg p-4 text-white"
-            style={{ backgroundColor: profile.color }}
-          >
-            <p className="font-semibold">{profile.label}</p>
-            <p className="text-sm opacity-90">{profile.blurb}</p>
+          <div className="rounded-lg p-4 text-white" style={{ backgroundColor: topTier.color }}>
+            <p className="font-semibold">
+              {topTier.label} ·{' '}
+              {primary.map((c) => CONDITION_LABEL[c]).join(' + ')}
+              {score.isTie && ' (co-primary)'}
+            </p>
+            <p className="text-sm opacity-90">{topTier.subtext}</p>
+          </div>
+          <div className="mt-3 space-y-2">
+            {['hypertension', 'hyperlipidaemia', 'diabetes'].map((c) => (
+              <div key={c} className="text-sm">
+                <div className="flex justify-between">
+                  <span>{CONDITION_LABEL[c]}</span>
+                  <span className="text-gray-500">
+                    {score.normalised[c]}% · {score.tier[c]}
+                  </span>
+                </div>
+                <div className="h-2 bg-gray-200 rounded">
+                  <div
+                    className="h-2 rounded"
+                    style={{
+                      width: `${Math.min(score.normalised[c], 100)}%`,
+                      backgroundColor: TIER_DISPLAY[score.tier[c]].color,
+                    }}
+                  />
+                </div>
+              </div>
+            ))}
           </div>
         </section>
 
+        {/* Food dashboard */}
         <section>
           <div className="flex gap-2 mb-3">
             {['all', 'safe', 'modify', 'avoid'].map((f) => (
@@ -102,31 +151,40 @@ export default function App() {
           </div>
 
           <div className="space-y-3">
-            {visible.map((d) => (
-              <div key={d.id} className="bg-white rounded-lg shadow-sm p-4">
-                <div className="flex justify-between items-start">
-                  <div>
-                    <p className="font-semibold">{d.name}</p>
-                    <p className="text-xs text-gray-500">
-                      {d.local_name} · {d.category} · {d.serving_size}
-                    </p>
+            {visible.map((d) => {
+              const worst = getWorstRating(d, primary)
+              return (
+                <div key={d.id} className="bg-white rounded-lg shadow-sm p-4">
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <p className="font-semibold">{d.name}</p>
+                      <p className="text-xs text-gray-500">
+                        {d.local_name} · {d.category} · {d.serving_size}
+                      </p>
+                    </div>
+                    <span className={`text-xs font-semibold uppercase ${RATING_COLOR[worst]}`}>{worst}</span>
                   </div>
-                  <span className="text-xs text-gray-400">{d.calories} kcal</span>
-                </div>
-                <div className="flex gap-4 mt-3 text-xs">
-                  {Object.entries(d.conditions).map(([cond, info]) => (
-                    <span key={cond} className={`flex items-center gap-1 ${RATING_COLOR[info.rating]}`}>
-                      <span className={`w-2 h-2 rounded-full ${RATING_DOT[info.rating]}`} />
-                      {cond}
-                    </span>
+                  <div className="flex gap-4 mt-3 text-xs">
+                    {primary.map((cond) => (
+                      <span key={cond} className={`flex items-center gap-1 ${RATING_COLOR[d.conditions[cond].rating]}`}>
+                        <span className={`w-2 h-2 rounded-full ${RATING_DOT[d.conditions[cond].rating]}`} />
+                        {CONDITION_LABEL[cond]}
+                      </span>
+                    ))}
+                  </div>
+                  {primary.map((cond) => (
+                    <p key={cond} className="text-xs text-gray-600 mt-1">
+                      <strong>{CONDITION_LABEL[cond]}:</strong> {d.conditions[cond].tip}
+                    </p>
                   ))}
                 </div>
-              </div>
-            ))}
+              )
+            })}
             {visible.length === 0 && <p className="text-gray-400 text-sm">No dishes match.</p>}
           </div>
         </section>
 
+        {/* AI advisor */}
         <section>
           <h2 className="font-semibold mb-2">Ask the advisor</h2>
           <div className="flex gap-2">
