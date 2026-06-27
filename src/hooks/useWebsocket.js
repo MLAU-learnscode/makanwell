@@ -95,7 +95,8 @@ export function useWebsocket({
       })
 
       ws.addEventListener('message', (event) => {
-        const data = JSON.parse(event.data)
+        let data
+        try { data = JSON.parse(event.data) } catch { return }
         if (data.type === 'history.updated') {
           if (data.inputs?.length && data.inputs[data.inputs.length - 1].role !== 'user') {
             setIsLoading(false)

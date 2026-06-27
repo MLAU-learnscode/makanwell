@@ -10,8 +10,18 @@ export default async function handler(req, res) {
   if (!key) return res.status(500).json({ error: 'Missing GOOGLE_PLACES_API_KEY' })
 
   const { query, lat, lng } = req.body || {}
-  if (!query || lat == null || lng == null) {
-    return res.status(400).json({ error: 'Body must include query, lat, lng' })
+
+  if (!query || typeof query !== 'string' || !query.trim()) {
+    return res.status(400).json({ error: 'query must be a non-empty string' })
+  }
+  if (query.length > 200) {
+    return res.status(400).json({ error: 'query too long (max 200 chars)' })
+  }
+  if (!isFinite(lat) || lat < -90 || lat > 90) {
+    return res.status(400).json({ error: 'lat must be a valid latitude (-90 to 90)' })
+  }
+  if (!isFinite(lng) || lng < -180 || lng > 180) {
+    return res.status(400).json({ error: 'lng must be a valid longitude (-180 to 180)' })
   }
 
   // ponytail: Text Search handles arbitrary food-name queries better than Nearby Search
