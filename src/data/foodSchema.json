@@ -1,0 +1,35 @@
+{
+  "_schema_notes": {
+    "purpose": "Canonical dish structure for MakanWell. Research A designs this; Research B copies it EXACTLY. Misaligned keys break the merge into public/food_database.json.",
+    "rating_values": ["safe", "modify", "avoid"],
+    "gi_level_values": ["low", "medium", "high"],
+    "category_values": ["Rice", "Noodles", "Soups", "Snacks", "Drinks", "Desserts"],
+    "id_convention": "<category-prefix>_<3-digit>, e.g. rice_001, noodle_012, soup_003"
+  },
+  "_sample_dish": {
+    "id": "rice_001",
+    "name": "Hainanese Chicken Rice (Steamed)",
+    "local_name": "鸡饭",
+    "category": "Rice",
+    "serving_size": "1 plate (350g)",
+    "calories": 520,
+    "sodium_mg": 890,
+    "saturated_fat_g": 5.2,
+    "cholesterol_mg": 120,
+    "gi_level": "medium",
+    "conditions": {
+      "hypertension": {
+        "rating": "modify",
+        "tip": "Request sauce on the side. Skip chilli sauce. Ask for less gravy."
+      },
+      "hyperlipidaemia": {
+        "rating": "safe",
+        "tip": "Choose steamed over roasted. Limit skin intake."
+      },
+      "diabetes": {
+        "rating": "modify",
+        "tip": "Ask for less rice. Add extra cucumber for fibre."
+      }
+    }
+  }
+}
