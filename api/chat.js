@@ -4,7 +4,7 @@ import Anthropic from '@anthropic-ai/sdk'
 // Holds ANTHROPIC_API_KEY server-side and proxies to Claude. The browser calls
 // this endpoint, never api.anthropic.com directly, so the key stays secret.
 
-const MODEL = 'claude-sonnet-4-6'
+const MODEL = 'claude-3-5-sonnet-latest'
 
 // Build a system prompt tuned to the user's health profile so the advisor's
 // tips line up with MakanWell's traffic-light thresholds.

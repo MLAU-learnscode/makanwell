@@ -117,5 +117,158 @@
       "hyperlipidaemia": { "rating": "safe", "tip": "Soy-based, almost no fat." },
       "diabetes": { "rating": "safe", "tip": "Ask for no syrup or 'kosong' to keep sugar low." }
     }
+  },
+  {
+    "id": "noodle_003",
+    "name": "Wanton Noodles (Dry)",
+    "local_name": "云吞面",
+    "category": "Noodles",
+    "serving_size": "1 plate (350g)",
+    "calories": 410,
+    "sodium_mg": 1250,
+    "saturated_fat_g": 4.8,
+    "cholesterol_mg": 70,
+    "gi_level": "medium",
+    "conditions": {
+      "hypertension": { "rating": "avoid", "tip": "The dark sauce base and pickled green chillies are packed with sodium. Ask for less sauce." },
+      "hyperlipidaemia": { "rating": "modify", "tip": "Contains lard oil in the seasoning. Request for 'no lard' (mai po) and skip fried wantons." },
+      "diabetes": { "rating": "modify", "tip": "Refined egg noodles spike glucose. Avoid eating the entire noodle portion and focus on the leafy greens and protein." }
+    }
+  },
+  {
+    "id": "rice_003",
+    "name": "Economy Rice (Cai Fan - 2 Veg + 1 Lean Protein)",
+    "local_name": "经济饭",
+    "category": "Rice",
+    "serving_size": "1 plate (400g)",
+    "calories": 450,
+    "sodium_mg": 780,
+    "saturated_fat_g": 3.5,
+    "cholesterol_mg": 45,
+    "gi_level": "medium",
+    "conditions": {
+      "hypertension": { "rating": "modify", "tip": "Avoid dishes drenched in rich gravies, curries, or braised sauces to cut sodium." },
+      "hyperlipidaemia": { "rating": "safe", "tip": "Follow the 1/4 protein, 1/2 veggies rule. Select steamed egg, tofu, or steamed fish over deep-fried variants." },
+      "diabetes": { "rating": "modify", "tip": "Ask for less rice or brown rice if available. Ensure half the plate is filled with non-fried leafy vegetables." }
+    }
+  },
+  {
+    "id": "rice_004",
+    "name": "Thunder Tea Rice (Lei Cha)",
+    "local_name": "擂茶饭",
+    "category": "Rice",
+    "serving_size": "1 bowl (380g)",
+    "calories": 430,
+    "sodium_mg": 580,
+    "saturated_fat_g": 1.5,
+    "cholesterol_mg": 10,
+    "gi_level": "low",
+    "conditions": {
+      "hypertension": { "rating": "safe", "tip": "Naturally low in sodium. Avoid adding extra salty preserved radish (chai poh)." },
+      "hyperlipidaemia": { "rating": "safe", "tip": "Highly plant-based with healthy fats from peanuts and sesame seeds. Exceptional choice." },
+      "diabetes": { "rating": "safe", "tip": "Excellent low-GI option due to high vegetable and tofu content. Pair with brown rice for a flat glycemic response." }
+    }
+  },
+  {
+    "id": "soup_002",
+    "name": "Yong Tau Foo (Clear Soup - 6 Items, No Noodles)",
+    "local_name": "酿豆腐",
+    "category": "Soups",
+    "serving_size": "1 bowl (400g)",
+    "calories": 280,
+    "sodium_mg": 920,
+    "saturated_fat_g": 2.0,
+    "cholesterol_mg": 30,
+    "gi_level": "low",
+    "conditions": {
+      "hypertension": { "rating": "modify", "tip": "Clear soup is high in sodium. Avoid drinking the broth entirely and skip sweet/chilli dip." },
+      "hyperlipidaemia": { "rating": "safe", "tip": "Choose fresh greens, tofu, seaweed, and egg. Avoid deep-fried items and fishcakes containing hidden fats." },
+      "diabetes": { "rating": "safe", "tip": "A fantastic low-carb, nutrient-dense choice when ordered without noodles or heavy starches." }
+    }
+  },
+  {
+    "id": "noodle_004",
+    "name": "Beef Noodles (Soup)",
+    "local_name": "牛肉面",
+    "category": "Noodles",
+    "serving_size": "1 bowl (450g)",
+    "calories": 460,
+    "sodium_mg": 1380,
+    "saturated_fat_g": 5.0,
+    "cholesterol_mg": 85,
+    "gi_level": "medium",
+    "conditions": {
+      "hypertension": { "rating": "avoid", "tip": "The herbal/beef stock is very high in sodium. Drink minimal broth." },
+      "hyperlipidaemia": { "rating": "modify", "tip": "Request lean beef slices instead of beef brisket, tendon, or beef balls which contain higher saturated fats." },
+      "diabetes": { "rating": "modify", "tip": "Thick bee hoon or kway teow has a moderate-to-high glycemic index. Limit noodle consumption." }
+    }
+  },
+  {
+    "id": "snack_001",
+    "name": "Popiah (1 Roll)",
+    "local_name": "薄饼",
+    "category": "Snacks",
+    "serving_size": "1 piece (120g)",
+    "calories": 180,
+    "sodium_mg": 360,
+    "saturated_fat_g": 1.2,
+    "cholesterol_mg": 25,
+    "gi_level": "low",
+    "conditions": {
+      "hypertension": { "rating": "modify", "tip": "Ask to omit the crispy fried pork lard bits and limit the savory sweet paste." },
+      "hyperlipidaemia": { "rating": "safe", "tip": "Low in saturated fats as it relies heavily on stewed turnip, bean sprouts, and egg. Omit lard bits." },
+      "diabetes": { "rating": "safe", "tip": "A good high-fiber snack choice. Ask the operator for less sweet sauce (manis) to minimize simple sugars." }
+    }
+  },
+  {
+    "id": "noodle_005",
+    "name": "Ban Mian (Clear Soup)",
+    "local_name": "板面",
+    "category": "Noodles",
+    "serving_size": "1 bowl (450g)",
+    "calories": 475,
+    "sodium_mg": 1420,
+    "saturated_fat_g": 3.8,
+    "cholesterol_mg": 65,
+    "gi_level": "medium",
+    "conditions": {
+      "hypertension": { "rating": "avoid", "tip": "The anchovy broth and ikan bilis toppings are heavily salted. Minimize soup intake." },
+      "hyperlipidaemia": { "rating": "modify", "tip": "The base soup is lean, but ask for fewer fried anchovies and ensure no lard oil is added to the bowl." },
+      "diabetes": { "rating": "modify", "tip": "Fresh wheat noodles are carbohydrate-dense. Request extra green leafy vegetables (mani cai) to balance the glycemic impact." }
+    }
+  },
+  {
+    "id": "noodle_006",
+    "name": "Mee Soto",
+    "local_name": "米索多",
+    "category": "Noodles",
+    "serving_size": "1 bowl (400g)",
+    "calories": 430,
+    "sodium_mg": 1560,
+    "saturated_fat_g": 3.2,
+    "cholesterol_mg": 50,
+    "gi_level": "medium",
+    "conditions": {
+      "hypertension": { "rating": "avoid", "tip": "Spicy spiced broth contains massive sodium counts. Do not drink the soup." },
+      "hyperlipidaemia": { "rating": "safe", "tip": "Uses shredded chicken breast which is lean. Avoid adding any deep-fried potato patties (bergedel)." },
+      "diabetes": { "rating": "modify", "tip": "Yellow noodles have high starch values. Ask to substitute with yellow noodles or reduce noodle volume." }
+    }
+  },
+  {
+    "id": "drink_002",
+    "name": "Barley Drink (Low Sugar)",
+    "local_name": "薏米水",
+    "category": "Drinks",
+    "serving_size": "1 glass (250ml)",
+    "calories": 80,
+    "sodium_mg": 15,
+    "saturated_fat_g": 0.1,
+    "cholesterol_mg": 0,
+    "gi_level": "medium",
+    "conditions": {
+      "hypertension": { "rating": "safe", "tip": "Extremely low sodium, safe hydration alternative." },
+      "hyperlipidaemia": { "rating": "safe", "tip": "Contains zero saturated fats or cholesterol. Whole grain residue contains soluble fibers." },
+      "diabetes": { "rating": "modify", "tip": "Request 'Siu Dai' (less sweet) or homemade variants with no added sugar. Avoid commercial pre-packaged syrups." }
+    }
   }
 ]

@@ -555,12 +555,57 @@ function ProfileScreen({ profile, onExplore }) {
   )
 }
 
+function calculateDistance(lat1, lon1, lat2, lon2) {
+  const R = 6371
+  const dLat = (lat2 - lat1) * Math.PI / 180
+  const dLon = (lon2 - lon1) * Math.PI / 180
+  const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+    Math.sin(dLon / 2) * Math.sin(dLon / 2)
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+  return (R * c * 1000).toFixed(0)
+}
+
 // ── Dashboard ───────────────────────────────────────────────────────────
 function DashboardScreen({ profile, dishes }) {
   const [query, setQuery] = useState('')
   const [category, setCategory] = useState(() => getDefaultCategory(profile))
   const [expanded, setExpanded] = useState(null)
+  const [eateries, setEateries] = useState([])
+  const [userLoc, setUserLoc] = useState(null)
+  const [locError, setLocError] = useState(null)
   const primary = profile?.primaryConditions ?? []
+
+  useEffect(() => {
+    fetch('/hawker_eateries.json').then((r) => r.json()).then(setEateries).catch(() => setEateries([]))
+  }, [])
+
+  function requestLocation() {
+    if (!navigator.geolocation) {
+      setLocError('Geolocation not supported')
+      return
+    }
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setUserLoc({ lat: pos.coords.latitude, lon: pos.coords.longitude })
+        setLocError(null)
+      },
+      (err) => {
+        setLocError('Location access denied. Please enable location to see nearby hawkers.')
+      }
+    )
+  }
+
+  function getNearbyEateries() {
+    if (!userLoc || !eateries.length) return []
+    return eateries
+      .map((e) => ({
+        ...e,
+        distance: parseInt(calculateDistance(userLoc.lat, userLoc.lon, e.coordinates[1], e.coordinates[0])),
+      }))
+      .sort((a, b) => a.distance - b.distance)
+      .slice(0, 3)
+  }
 
   const filtered = sortDishesForConditions(
     dishes.filter((f) => {
@@ -669,6 +714,32 @@ function DashboardScreen({ profile, dishes }) {
                         </div>
                       ))}
                     </div>
+                    <div className="mt-4 pt-4 border-t border-border/50">
+                      <div className="text-xs font-semibold text-muted-foreground mb-2 uppercase tracking-wider">📍 Hawkers near you</div>
+                      {!userLoc ? (
+                        <button onClick={requestLocation}
+                          className="w-full bg-teal-50 hover:bg-teal-100 border border-teal-200 text-teal-700 font-semibold py-2.5 rounded-xl text-sm transition-colors">
+                          📍 Show nearby hawkers
+                        </button>
+                      ) : (
+                        <div className="space-y-2">
+                          {getNearbyEateries().map((e) => (
+                            <div key={e.id} className="text-xs bg-emerald-50 border border-emerald-200 rounded-xl p-2.5">
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="flex-1">
+                                  <div className="font-semibold text-emerald-900">{e.name}</div>
+                                  <div className="text-emerald-700 text-[11px] mt-0.5">{e.address}</div>
+                                </div>
+                                <div className="flex-shrink-0 text-right">
+                                  <div className="font-bold text-emerald-900">{e.distance}m</div>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      {locError && <p className="text-xs text-red-600 mt-2">{locError}</p>}
+                    </div>
                   </div>
                 )}
               </div>
@@ -720,12 +791,16 @@ function ChatScreen({ profile }) {
           messages: apiMessages,
         }),
       })
+      if (!res.ok) throw new Error(`API error: ${res.status}`)
       const data = await res.json()
       const answer = data.reply || data.error || 'No response.'
       setMsgs((prev) => [...prev, { role: 'ai', text: answer }])
       if (data.reply) speak(data.reply)
-    } catch {
-      setMsgs((prev) => [...prev, { role: 'ai', text: 'Could not reach the advisor. Check your connection.' }])
+    } catch (err) {
+      const errMsg = err.message.includes('fetch')
+        ? '⚠️ API not available locally. Deploy to Vercel or use `vercel dev` to test the chat feature.'
+        : `Error: ${err.message}`
+      setMsgs((prev) => [...prev, { role: 'ai', text: errMsg }])
     } finally {
       setTyping(false)
     }
