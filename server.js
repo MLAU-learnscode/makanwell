@@ -23,6 +23,14 @@ loadEnv()
 
 const PORT = 3000
 
+// ── Hawker search config ──────────────────────────────────────────────────
+// Adjust this suffix to change what kind of places are returned when a user
+// searches for a food item. Examples:
+//   'hawker stall Singapore'
+//   'hawker centre Singapore'
+//   'food court Singapore'
+const HAWKER_SEARCH_SUFFIX = 'hawker stall Singapore'
+
 // Defense-in-depth: Verify environment at startup
 if (!process.env.ANTHROPIC_API_KEY) {
   console.error('❌ ANTHROPIC_API_KEY not found in environment')
@@ -62,6 +70,58 @@ const server = http.createServer(async (req, res) => {
   if (req.method === 'OPTIONS') {
     res.writeHead(200)
     res.end()
+    return
+  }
+
+  if (req.method === 'POST' && req.url === '/api/places') {
+    let body = ''
+    req.on('data', (chunk) => { body += chunk })
+    req.on('end', async () => {
+      try {
+        const { query, lat, lng } = JSON.parse(body)
+        const url = `https://maps.googleapis.com/maps/api/place/textsearch/json?query=${encodeURIComponent(query + ' Singapore')}&location=${lat},${lng}&radius=3000&key=${process.env.GOOGLE_PLACES_API_KEY}`
+        const resp = await fetch(url)
+        const data = await resp.json()
+        const places = (data.results ?? []).slice(0, 3).map(p => ({
+          name: p.name,
+          address: p.formatted_address,
+        }))
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ places }))
+      } catch (err) {
+        console.error('[/api/places] error:', err)
+        res.writeHead(500)
+        res.end(JSON.stringify({ error: 'Places lookup failed.' }))
+      }
+    })
+    return
+  }
+
+  // Hawker-specific food search — uses HAWKER_SEARCH_SUFFIX so results are
+  // stall-level rather than general restaurants.
+  if (req.method === 'POST' && req.url === '/api/hawker-search') {
+    let body = ''
+    req.on('data', (chunk) => { body += chunk })
+    req.on('end', async () => {
+      try {
+        const { food, lat, lng } = JSON.parse(body)
+        const searchQuery = `${food} ${HAWKER_SEARCH_SUFFIX}`
+        const url = `https://maps.googleapis.com/maps/api/place/textsearch/json?query=${encodeURIComponent(searchQuery)}&location=${lat},${lng}&radius=3000&key=${process.env.GOOGLE_PLACES_API_KEY}`
+        const resp = await fetch(url)
+        const data = await resp.json()
+        const places = (data.results ?? []).slice(0, 5).map(p => ({
+          name: p.name,
+          address: p.formatted_address,
+          rating: p.rating ?? null,
+        }))
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ places, query: searchQuery }))
+      } catch (err) {
+        console.error('[/api/hawker-search] error:', err)
+        res.writeHead(500)
+        res.end(JSON.stringify({ error: 'Hawker search failed.' }))
+      }
+    })
     return
   }
 

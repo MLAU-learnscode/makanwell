@@ -566,6 +566,12 @@ function calculateDistance(lat1, lon1, lat2, lon2) {
   return (R * c * 1000).toFixed(0)
 }
 
+function scoreEatery(eateryName, foodName) {
+  const words = foodName.toLowerCase().split(/\s+/).filter(w => w.length > 3)
+  const name = eateryName.toLowerCase()
+  return words.filter(w => name.includes(w)).length
+}
+
 // ── Dashboard ───────────────────────────────────────────────────────────
 function DashboardScreen({ profile, dishes }) {
   const [query, setQuery] = useState('')
@@ -574,11 +580,35 @@ function DashboardScreen({ profile, dishes }) {
   const [eateries, setEateries] = useState([])
   const [userLoc, setUserLoc] = useState(null)
   const [locError, setLocError] = useState(null)
+  const [placesResults, setPlacesResults] = useState([])
+  const [placesLoading, setPlacesLoading] = useState(false)
+  const [hawkerSearch, setHawkerSearch] = useState('')
+  const [hawkerResults, setHawkerResults] = useState(null)
+  const [hawkerLoading, setHawkerLoading] = useState(false)
   const primary = profile?.primaryConditions ?? []
 
   useEffect(() => {
     fetch('/hawker_eateries.json').then((r) => r.json()).then(setEateries).catch(() => setEateries([]))
   }, [])
+
+  useEffect(() => {
+    if (!expanded || !userLoc || !eateries.length) return
+    const food = dishes.find(d => d.id === expanded)
+    if (!food) return
+    const localMatches = getNearbyEateries(food)
+    if (localMatches.some(e => e.score > 0)) { setPlacesResults([]); return }
+    setPlacesLoading(true)
+    setPlacesResults([])
+    fetch('/api/places', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query: food.name, lat: userLoc.lat, lng: userLoc.lon }),
+    })
+      .then(r => r.json())
+      .then(d => setPlacesResults(d.places ?? []))
+      .catch(() => setPlacesResults([]))
+      .finally(() => setPlacesLoading(false))
+  }, [expanded, userLoc])
 
   function requestLocation() {
     if (!navigator.geolocation) {
@@ -596,14 +626,35 @@ function DashboardScreen({ profile, dishes }) {
     )
   }
 
-  function getNearbyEateries() {
+  async function searchHawkers(foodQuery) {
+    if (!foodQuery.trim()) return
+    if (!userLoc) { requestLocation(); return }
+    setHawkerLoading(true)
+    setHawkerResults(null)
+    try {
+      const res = await fetch('/api/hawker-search', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ food: foodQuery.trim(), lat: userLoc.lat, lng: userLoc.lon }),
+      })
+      const data = await res.json()
+      setHawkerResults(data.places ?? [])
+    } catch {
+      setHawkerResults([])
+    } finally {
+      setHawkerLoading(false)
+    }
+  }
+
+  function getNearbyEateries(food) {
     if (!userLoc || !eateries.length) return []
     return eateries
       .map((e) => ({
         ...e,
-        distance: parseInt(calculateDistance(userLoc.lat, userLoc.lon, e.coordinates[1], e.coordinates[0])),
+        distance: Math.round(calculateDistance(userLoc.lat, userLoc.lon, e.coordinates[1], e.coordinates[0])) || 0,
+        score: food ? scoreEatery(e.name, food.name) : 0,
       }))
-      .sort((a, b) => a.distance - b.distance)
+      .sort((a, b) => b.score - a.score || a.distance - b.distance)
       .slice(0, 3)
   }
 
@@ -673,6 +724,47 @@ function DashboardScreen({ profile, dishes }) {
           ))}
         </div>
 
+        {/* Hawker food search panel */}
+        <div className="mb-5 bg-white rounded-3xl border border-border/50 shadow-sm p-4">
+          <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">🔍 Find hawker stalls near you</div>
+          <div className="flex gap-2">
+            <input
+              value={hawkerSearch}
+              onChange={(e) => setHawkerSearch(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && searchHawkers(hawkerSearch)}
+              placeholder="e.g. chicken rice, char kway teow..."
+              className="flex-1 bg-muted/40 border border-border rounded-2xl px-4 py-2.5 text-sm outline-none focus:border-primary"
+            />
+            <button
+              onClick={() => searchHawkers(hawkerSearch)}
+              disabled={!hawkerSearch.trim() || hawkerLoading}
+              className={`px-4 py-2.5 rounded-2xl text-sm font-semibold transition-all flex-shrink-0 ${hawkerSearch.trim() && !hawkerLoading ? 'bg-primary text-white hover:bg-teal-700' : 'bg-muted text-muted-foreground cursor-not-allowed'}`}
+            >
+              {hawkerLoading ? '...' : 'Search'}
+            </button>
+          </div>
+          {!userLoc && (
+            <p className="text-xs text-muted-foreground mt-2">📍 Location required — click Search to enable</p>
+          )}
+          {hawkerResults !== null && (
+            <div className="mt-3 space-y-2">
+              {hawkerResults.length === 0 ? (
+                <p className="text-xs text-muted-foreground">No nearby stalls found. Try a different food name.</p>
+              ) : hawkerResults.map((p, i) => (
+                <div key={i} className="bg-emerald-50 border border-emerald-200 rounded-xl p-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex-1">
+                      <div className="font-semibold text-xs text-emerald-900">{p.name}</div>
+                      <div className="text-[11px] text-emerald-700 mt-0.5">{p.address}</div>
+                    </div>
+                    {p.rating && <div className="flex-shrink-0 text-xs font-bold text-emerald-800">⭐ {p.rating}</div>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
         <div className="space-y-3 md:grid md:grid-cols-2 xl:grid-cols-3 md:gap-4 md:space-y-0 pb-4">
           {filtered.map((food) => {
             const light = getWorstRating(food, primary)
@@ -715,29 +807,65 @@ function DashboardScreen({ profile, dishes }) {
                       ))}
                     </div>
                     <div className="mt-4 pt-4 border-t border-border/50">
-                      <div className="text-xs font-semibold text-muted-foreground mb-2 uppercase tracking-wider">📍 Hawkers near you</div>
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">📍 Nearby healthy eateries</div>
+                        {userLoc && <button onClick={(e) => { e.stopPropagation(); setUserLoc(null) }} className="text-[10px] text-muted-foreground hover:text-foreground underline">reset</button>}
+                      </div>
                       {!userLoc ? (
-                        <button onClick={requestLocation}
+                        <button onClick={(e) => { e.stopPropagation(); requestLocation() }}
                           className="w-full bg-teal-50 hover:bg-teal-100 border border-teal-200 text-teal-700 font-semibold py-2.5 rounded-xl text-sm transition-colors">
                           📍 Show nearby hawkers
                         </button>
-                      ) : (
-                        <div className="space-y-2">
-                          {getNearbyEateries().map((e) => (
-                            <div key={e.id} className="text-xs bg-emerald-50 border border-emerald-200 rounded-xl p-2.5">
-                              <div className="flex items-start justify-between gap-2">
-                                <div className="flex-1">
+                      ) : (() => {
+                          const local = getNearbyEateries(food)
+                          const hasMatch = local.some(e => e.score > 0)
+                          if (hasMatch) return (
+                            <div className="space-y-2">
+                              {local.map((e) => (
+                                <div key={e.id} className="text-xs bg-emerald-50 border border-emerald-200 rounded-xl p-2.5">
+                                  <div className="flex items-start justify-between gap-2">
+                                    <div className="flex-1">
+                                      <div className="font-semibold text-emerald-900">{e.name}</div>
+                                      <div className="text-emerald-700 text-[11px] mt-0.5">{e.address}</div>
+                                    </div>
+                                    <div className="flex-shrink-0 text-right">
+                                      <div className="font-bold text-emerald-900">{e.distance}m</div>
+                                    </div>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )
+                          if (placesLoading) return <p className="text-xs text-muted-foreground">Searching nearby...</p>
+                          if (placesResults.length > 0) return (
+                            <div className="space-y-2">
+                              {placesResults.map((e, i) => (
+                                <div key={i} className="text-xs bg-emerald-50 border border-emerald-200 rounded-xl p-2.5">
                                   <div className="font-semibold text-emerald-900">{e.name}</div>
                                   <div className="text-emerald-700 text-[11px] mt-0.5">{e.address}</div>
                                 </div>
-                                <div className="flex-shrink-0 text-right">
-                                  <div className="font-bold text-emerald-900">{e.distance}m</div>
-                                </div>
-                              </div>
+                              ))}
                             </div>
-                          ))}
-                        </div>
-                      )}
+                          )
+                          return (
+                            <div className="space-y-2">
+                              {local.map((e) => (
+                                <div key={e.id} className="text-xs bg-emerald-50 border border-emerald-200 rounded-xl p-2.5">
+                                  <div className="flex items-start justify-between gap-2">
+                                    <div className="flex-1">
+                                      <div className="font-semibold text-emerald-900">{e.name}</div>
+                                      <div className="text-emerald-700 text-[11px] mt-0.5">{e.address}</div>
+                                    </div>
+                                    <div className="flex-shrink-0 text-right">
+                                      <div className="font-bold text-emerald-900">{e.distance}m</div>
+                                    </div>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )
+                        })()
+                      }
                       {locError && <p className="text-xs text-red-600 mt-2">{locError}</p>}
                     </div>
                   </div>
@@ -797,8 +925,8 @@ function ChatScreen({ profile }) {
       setMsgs((prev) => [...prev, { role: 'ai', text: answer }])
       if (data.reply) speak(data.reply)
     } catch (err) {
-      const errMsg = err.message.includes('fetch')
-        ? '⚠️ API not available locally. Deploy to Vercel or use `vercel dev` to test the chat feature.'
+      const errMsg = err.message.includes('fetch') || err.message.includes('Failed to fetch')
+        ? '⚠️ AI server is not running. Open a terminal and run: npm run dev (this starts both the API server and UI together).'
         : `Error: ${err.message}`
       setMsgs((prev) => [...prev, { role: 'ai', text: errMsg }])
     } finally {

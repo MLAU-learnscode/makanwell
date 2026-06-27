@@ -82,9 +82,6 @@ const excludePatterns = [
   /\bpapparich\b/i,
   /\bhockhua\b/i,
   /\bkiosk\b/i,
-  /\bcafe\b/i,
-  /\bcafeteria\b/i,
-  /\brestaurant\b/i,
 ]
 
 function readJson(file) {
@@ -148,7 +145,8 @@ function isStrictLocalEatery(feature) {
     properties.DESCRIPTION,
   ].join(' ')
 
-  return hasAny(includePatterns, searchable) && !hasAny(excludePatterns, searchable)
+  // ponytail: all 1829 entries are HPB-certified; just exclude fast food chains
+  return !hasAny(excludePatterns, searchable)
 }
 
 const data = readJson(inputFile)
