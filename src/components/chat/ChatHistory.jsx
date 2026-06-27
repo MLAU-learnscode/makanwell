@@ -21,7 +21,7 @@ export function ChatHistory({ messages, isLoading, suggestions, onSuggestionClic
   const showWelcome = welcomeMessage && visibleMessages.length === 0 && !isLoading
 
   return (
-    <div className="flex-1 overflow-y-auto px-5 sm:px-8 py-5 space-y-4">
+    <div className="flex-1 min-h-0 overflow-y-auto px-5 sm:px-8 py-3 space-y-3">
       {showWelcome && (
         <div className="flex gap-2 justify-start">
           <div className="w-7 h-7 rounded-xl bg-gradient-to-br from-teal-500 to-emerald-500 flex-shrink-0 mt-1 shadow-sm" />

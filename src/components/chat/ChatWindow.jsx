@@ -33,7 +33,8 @@ export default function ChatWindow({
     playAudio,
     startRecording,
     stopRecording,
-    stopPlaying,
+    interruptPlayback,
+    onPlaybackDone,
     frequencies,
     playbackFrequencies,
   } = useAudio()
@@ -47,7 +48,7 @@ export default function ChatWindow({
   const {
     isReady: wsReady,
     sendTextMessage,
-    sendAudioMessage,
+    sendAudioMessage: wsSendAudioMessage,
     history,
     isLoading,
     agentName,
@@ -59,14 +60,26 @@ export default function ChatWindow({
     profile,
     lang,
     onNewAudio: playAudio,
+    onAudioDone: onPlaybackDone,
     onSessionComplete: handleSessionComplete,
   })
 
-  function handleSubmit() {
+  async function handleSubmit() {
     const text = prompt.trim()
     if (!text || isLoading) return
     setPrompt('')
+    await interruptPlayback({ expectVoiceResponse: false })
     sendTextMessage(text)
+  }
+
+  async function handleSuggestion(text) {
+    await interruptPlayback({ expectVoiceResponse: false })
+    sendTextMessage(text)
+  }
+
+  async function sendVoiceMessage(audio) {
+    await interruptPlayback({ expectVoiceResponse: true })
+    wsSendAudioMessage(audio)
   }
 
   function handleLangChange(newLang) {
@@ -79,9 +92,9 @@ export default function ChatWindow({
     : 'Connecting...'
 
   return (
-    <div className={`h-[100dvh] md:h-screen flex flex-col bg-background ${showNavPadding ? 'pb-[4.5rem] md:pb-0' : ''}`}>
+    <div className={`h-dvh flex flex-col overflow-hidden bg-background ${showNavPadding ? 'pb-[calc(3.75rem+env(safe-area-inset-bottom))] md:pb-0' : ''}`}>
       <div className="w-full max-w-4xl mx-auto flex flex-col flex-1 min-h-0">
-        <div className="px-5 sm:px-8 pt-10 sm:pt-12 md:pt-8 pb-4 bg-white border-b border-border flex-shrink-0">
+        <div className="px-5 sm:px-8 pt-5 sm:pt-6 md:pt-5 pb-3 bg-white border-b border-border flex-shrink-0">
           <div className="flex items-center gap-3">
             {onBack && (
               <button
@@ -129,7 +142,7 @@ export default function ChatWindow({
         </div>
 
         {connectionError && (
-          <div className="mx-5 sm:mx-8 mt-4 p-4 bg-amber-50 border border-amber-200 rounded-2xl text-sm text-amber-800">
+          <div className="mx-5 sm:mx-8 mt-2 p-3 bg-amber-50 border border-amber-200 rounded-2xl text-sm text-amber-800 flex-shrink-0">
             {connectionError}
             {retryCount > 0 && !connectionError.includes('Retrying') && (
               <p className="text-xs mt-2 text-amber-700">Retrying… ({retryCount}/{8})</p>
@@ -156,7 +169,7 @@ export default function ChatWindow({
           messages={history}
           isLoading={isLoading}
           suggestions={suggestions}
-          onSuggestionClick={(s) => sendTextMessage(s)}
+          onSuggestionClick={handleSuggestion}
           welcomeMessage={
             mode === 'intake' && history.length === 0
               ? "Hi! I'm your MakanWell health assistant. I'll ask you a few questions about your health and eating habits so I can recommend the best hawker food for you. You can type or tap the microphone to speak — in any language you prefer."
@@ -178,7 +191,7 @@ export default function ChatWindow({
           </div>
         )}
 
-        <div className="px-5 sm:px-8 py-4 bg-white border-t border-border flex-shrink-0 pb-[calc(1rem+env(safe-area-inset-bottom))] md:pb-4">
+        <div className="px-5 sm:px-8 py-3 bg-white border-t border-border flex-shrink-0 pb-[calc(0.75rem+env(safe-area-inset-bottom))] md:pb-3">
           <Composer
             prompt={prompt}
             setPrompt={setPrompt}
@@ -186,13 +199,13 @@ export default function ChatWindow({
             isLoading={isLoading || completing}
             audioChatProps={{
               isReady: wsReady && audioReady && !completing,
-              startRecording: async () => { await stopPlaying(); await startRecording() },
+              startRecording,
               stopRecording,
-              sendAudioMessage,
+              sendAudioMessage: sendVoiceMessage,
               frequencies,
             }}
           />
-          <p className="text-center text-[10px] text-muted-foreground mt-2">
+          <p className="text-center text-[10px] text-muted-foreground mt-1.5">
             AI responses are for general reference only. Consult a healthcare professional.
           </p>
         </div>
